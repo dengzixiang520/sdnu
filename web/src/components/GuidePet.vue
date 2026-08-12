@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { PhArrowUp, PhMinus, PhPaperPlaneTilt, PhSparkle } from '@phosphor-icons/vue'
@@ -17,10 +17,13 @@ const messages = ref<ChatMessage[]>([{ role: 'assistant', content: '嗨，我是
 const position = ref({ x: 0, y: 0 })
 const providerOnline = ref<boolean | null>(null)
 const loadedHistory = ref(false)
+const rotateX = ref(0)
+const rotateY = ref(0)
 let pointerId: number | null = null
 let origin = { x: 0, y: 0, left: 0, top: 0 }
 let dragged = false
 let idleTimer: number | undefined
+let mouseMoveTimer: number | undefined
 
 const idleStates: PetState[] = ['idle', 'wave', 'sleep', 'snack', 'milktea']
 const stateCopy: Record<PetState, string> = {
@@ -102,14 +105,52 @@ function scheduleIdle() {
 }
 function handleResize() { position.value = clampPosition(position.value.x, position.value.y) }
 function openFromPage() { if (minimized.value) minimized.value = false; if (!open.value) void toggleDialog() }
+
+// 3D鼠标跟踪效果
+function handleMouseMove(event: MouseEvent) {
+  if (!pet.value || open.value) return
+  const rect = pet.value.getBoundingClientRect()
+  const centerX = rect.left + rect.width / 2
+  const centerY = rect.top + rect.height / 2
+  const mouseX = event.clientX
+  const mouseY = event.clientY
+  
+  // 计算鼠标相对于角色中心的角度
+  const deltaX = (mouseX - centerX) / (window.innerWidth / 2)
+  const deltaY = (mouseY - centerY) / (window.innerHeight / 2)
+  
+  // 限制旋转角度在±15度范围内
+  rotateY.value = Math.max(-15, Math.min(15, deltaX * 15))
+  rotateX.value = Math.max(-10, Math.min(10, -deltaY * 10))
+}
+
+function handleMouseLeave() {
+  // 鼠标离开时平滑回到初始位置
+  rotateX.value = 0
+  rotateY.value = 0
+}
+
 watch(() => route.fullPath, () => { open.value = false; scheduleIdle() })
-onMounted(() => { restorePosition(); scheduleIdle(); window.addEventListener('resize', handleResize); window.addEventListener('zhq-open-guide', openFromPage) })
-onBeforeUnmount(() => { window.clearTimeout(idleTimer); window.removeEventListener('resize', handleResize); window.removeEventListener('zhq-open-guide', openFromPage); window.removeEventListener('pointermove', movePet) })
+onMounted(() => { 
+  restorePosition(); 
+  scheduleIdle(); 
+  window.addEventListener('resize', handleResize); 
+  window.addEventListener('zhq-open-guide', openFromPage)
+  window.addEventListener('mousemove', handleMouseMove)
+})
+onBeforeUnmount(() => { 
+  window.clearTimeout(idleTimer); 
+  window.clearTimeout(mouseMoveTimer)
+  window.removeEventListener('resize', handleResize); 
+  window.removeEventListener('zhq-open-guide', openFromPage); 
+  window.removeEventListener('pointermove', movePet)
+  window.removeEventListener('mousemove', handleMouseMove)
+})
 </script>
 
 <template>
   <button v-if="minimized" class="guide-restore" type="button" aria-label="显示暖心引导员" @click="restore"><PhSparkle :size="22" weight="fill" /></button>
-  <div v-else ref="pet" class="guide-pet" :class="[`is-${state}`, { open }]" :style="{ transform: `translate3d(${position.x}px, ${position.y}px, 0)` }" @pointerdown="beginDrag">
+  <div v-else ref="pet" class="guide-pet" :class="[is-, { open }]" :style="{ transform: 	ranslate3d(px, px, 0) }" @pointerdown="beginDrag" @mouseleave="handleMouseLeave">
     <section v-if="open" class="guide-dialog" aria-label="与暖心引导员对话" @pointerdown.stop>
       <header><div><span class="guide-online"><i :class="{ offline: providerOnline === false }"></i>小齐 · {{ stateCopy[state] }}</span><small>{{ providerOnline === false ? '当前为本地陪伴模式' : '多轮对话仅在本会话保留' }}</small></div><button type="button" aria-label="最小化引导员" @click="minimize"><PhMinus :size="18" /></button></header>
       <div class="guide-messages" aria-live="polite">
@@ -124,20 +165,22 @@ onBeforeUnmount(() => { window.clearTimeout(idleTimer); window.removeEventListen
       <footer><button type="button" @click="enterWellbeing">打开暖心空间 <PhArrowUp :size="14" /></button><span>AI 陪伴不能替代专业或紧急支持</span></footer>
     </section>
 
-    <div class="pet-stage" role="button" :aria-label="`暖心引导员小齐，${stateCopy[state]}，可拖动位置或点击对话`">
+    <div class="pet-stage" role="button" :aria-label="暖心引导员小齐，，可拖动位置或点击对话" :style="{ perspective: '800px', perspectiveOrigin: '50% 50%' }">
       <span class="pet-status">{{ stateCopy[state] }}</span>
       <div class="pet-z">Z<sup>z</sup></div>
       <div class="pet-prop snack">小饼干</div>
       <div class="pet-prop cup"><i></i><b>奶茶</b></div>
       <div class="pet-shadow"></div>
-      <div class="pet-character">
-        <div class="pet-hair back"></div>
-        <div class="pet-leg left"><i></i></div><div class="pet-leg right"><i></i></div>
-        <div class="pet-torso"><span class="pet-scarf"></span><b>齐</b></div>
-        <div class="pet-arm left"></div><div class="pet-arm right"></div>
-        <div class="pet-head">
-          <div class="pet-hair front"></div><span class="pet-ear left"></span><span class="pet-ear right"></span>
-          <div class="pet-face"><i class="pet-eye left"></i><i class="pet-eye right"></i><span class="pet-blush left"></span><span class="pet-blush right"></span><b class="pet-mouth"></b></div>
+      <div class="pet-character" :style="{ transform: otateX(deg) rotateY(deg), transformStyle: 'preserve-3d' }">
+        <div class="pet-3d-body">
+          <div class="pet-hair back"></div>
+          <div class="pet-leg left"><i></i></div><div class="pet-leg right"><i></i></div>
+          <div class="pet-torso"><span class="pet-scarf"></span><b>齐</b></div>
+          <div class="pet-arm left"></div><div class="pet-arm right"></div>
+          <div class="pet-head">
+            <div class="pet-hair front"></div><span class="pet-ear left"></span><span class="pet-ear right"></span>
+            <div class="pet-face"><i class="pet-eye left"></i><i class="pet-eye right"></i><span class="pet-blush left"></span><span class="pet-blush right"></span><b class="pet-mouth"></b></div>
+          </div>
         </div>
       </div>
     </div>
