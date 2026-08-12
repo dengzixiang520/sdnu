@@ -303,16 +303,18 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   font-weight: 700;
   color: #397f72;
 }
-/* ==================== 竞赛详情视图 - 横向排版 ==================== */
+/* ==================== 竞赛详情视图 - 全屏横向排版 ==================== */
 .innovation-page.detail-mode {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 24px;
+  width: 100%;
+  max-width: none;
+  padding: 0;
+  margin: 0;
 }
 
 .competition-detail {
   width: 100%;
-  padding: 24px 0;
+  padding: 24px 32px;
+  min-height: calc(100vh - 100px);
 }
 
 /* 顶部导航栏 */
@@ -320,7 +322,7 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   display: flex;
   align-items: center;
   gap: 24px;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
   padding-bottom: 20px;
   border-bottom: 2px solid #eef1ea;
 }
@@ -329,7 +331,7 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 20px;
+  padding: 12px 24px;
   background: #397f72;
   border: none;
   border-radius: 8px;
@@ -353,7 +355,7 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
 }
 
 .detail-title-row h1 {
-  font-size: 24px;
+  font-size: 28px;
   color: #172b2a;
   margin: 0;
   font-weight: 700;
@@ -368,7 +370,7 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 20px;
+  padding: 12px 24px;
   background: #d8614d;
   color: white;
   border-radius: 8px;
@@ -383,24 +385,21 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   background: #c45540;
 }
 
-/* 横向信息卡片行 */
+/* 横向信息卡片行 - 全宽 */
 .detail-info-row {
   display: flex;
   gap: 16px;
-  margin-bottom: 24px;
-  overflow-x: auto;
-  padding-bottom: 8px;
+  margin-bottom: 28px;
 }
 
 .info-card-horizontal {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 20px;
+  padding: 20px 24px;
   background: rgba(255, 254, 248, 0.98);
   border: 1px solid #d8ded4;
   border-radius: 12px;
-  min-width: 180px;
   flex: 1;
   transition: all 0.2s;
 }
@@ -411,8 +410,8 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
 }
 
 .info-icon {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   background: linear-gradient(135deg, #e8f4f0, #dfece5);
   border-radius: 12px;
   display: flex;
@@ -429,13 +428,13 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
 }
 
 .info-label {
-  font-size: 12px;
+  font-size: 13px;
   color: #667572;
   font-weight: 500;
 }
 
 .info-value {
-  font-size: 16px;
+  font-size: 17px;
   color: #172b2a;
   font-weight: 700;
 }
@@ -444,46 +443,46 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   color: #d8614d;
 }
 
-/* 横向内容区域 */
+/* 横向内容区域 - 全宽 */
 .detail-content-row {
   display: flex;
-  gap: 24px;
+  gap: 28px;
 }
 
 .detail-main-content {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 .content-section {
   background: rgba(255, 254, 248, 0.98);
   border: 1px solid #d8ded4;
   border-radius: 12px;
-  padding: 24px;
+  padding: 28px;
 }
 
 .content-section h3 {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 18px;
+  font-size: 20px;
   color: #172b2a;
-  margin: 0 0 16px 0;
-  padding-bottom: 12px;
+  margin: 0 0 20px 0;
+  padding-bottom: 16px;
   border-bottom: 2px solid #eef1ea;
 }
 
 .description-text {
-  font-size: 16px;
+  font-size: 17px;
   color: #526764;
   line-height: 1.8;
-  margin: 0 0 12px 0;
+  margin: 0 0 16px 0;
 }
 
 .organizer-text {
-  font-size: 14px;
+  font-size: 15px;
   color: #667572;
   margin: 0;
 }
@@ -499,18 +498,18 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
 }
 
 .tips-section p {
-  font-size: 15px;
+  font-size: 16px;
   color: #526764;
-  line-height: 1.7;
+  line-height: 1.8;
   margin: 0;
 }
 
 /* 右侧边栏 */
 .detail-sidebar {
-  width: 300px;
+  width: 320px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
   flex-shrink: 0;
 }
 
@@ -518,48 +517,54 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   background: rgba(255, 254, 248, 0.98);
   border: 1px solid #d8ded4;
   border-radius: 12px;
-  padding: 20px;
+  padding: 24px;
 }
 
 .sidebar-card h4 {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 15px;
+  gap: 10px;
+  font-size: 17px;
   color: #172b2a;
-  margin: 0 0 16px 0;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #eef1ea;
+  margin: 0 0 20px 0;
+  padding-bottom: 14px;
+  border-bottom: 2px solid #eef1ea;
 }
 
 .skills-horizontal {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
 }
 
 .skill-chip {
-  padding: 6px 14px;
+  padding: 8px 16px;
   background: #e8f4f0;
   color: #397f72;
-  border-radius: 16px;
-  font-size: 13px;
-  font-weight: 500;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
   border: 1px solid #c8e6d8;
+  transition: all 0.2s;
+}
+
+.skill-chip:hover {
+  background: #397f72;
+  color: white;
 }
 
 .awards-horizontal {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
 }
 
 .award-chip {
-  padding: 6px 14px;
+  padding: 8px 16px;
   background: #f5f4eb;
   color: #172b2a;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -586,37 +591,70 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
 }
 
 .difficulty-level-text {
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 800;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .difficulty-bar-horizontal {
-  height: 8px;
+  height: 10px;
   background: #f0f0f0;
-  border-radius: 4px;
+  border-radius: 5px;
   overflow: hidden;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .difficulty-fill-horizontal {
   height: 100%;
-  border-radius: 4px;
+  border-radius: 5px;
   transition: width 0.5s ease;
 }
 
 .difficulty-desc-horizontal {
-  font-size: 13px;
+  font-size: 14px;
   color: #667572;
   margin: 0;
+  line-height: 1.5;
 }
 
 /* 响应式布局 */
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
   .detail-top-bar {
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  
+  .detail-info-row {
+    flex-wrap: wrap;
+  }
+  
+  .info-card-horizontal {
+    min-width: calc(50% - 8px);
+  }
+  
+  .detail-content-row {
+    flex-direction: column;
+  }
+  
+  .detail-sidebar {
+    width: 100%;
+  }
+}
+
+@media (max-width: 600px) {
+  .competition-detail {
+    padding: 16px;
+  }
+  
+  .info-card-horizontal {
+    min-width: 100%;
+  }
+  
+  .detail-title-row {
     flex-direction: column;
     align-items: flex-start;
   }
+}
   
   .detail-info-row {
     flex-wrap: nowrap;
