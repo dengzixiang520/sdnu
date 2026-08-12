@@ -23,7 +23,6 @@ let pointerId: number | null = null
 let origin = { x: 0, y: 0, left: 0, top: 0 }
 let dragged = false
 let idleTimer: number | undefined
-let mouseMoveTimer: number | undefined
 
 const idleStates: PetState[] = ['idle', 'wave', 'sleep', 'snack', 'milktea']
 const stateCopy: Record<PetState, string> = {
@@ -140,7 +139,6 @@ onMounted(() => {
 })
 onBeforeUnmount(() => { 
   window.clearTimeout(idleTimer); 
-  window.clearTimeout(mouseMoveTimer)
   window.removeEventListener('resize', handleResize); 
   window.removeEventListener('zhq-open-guide', openFromPage); 
   window.removeEventListener('pointermove', movePet)
@@ -149,37 +147,59 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <button v-if="minimized" class="guide-restore" type="button" aria-label="显示暖心引导员" @click="restore"><PhSparkle :size="22" weight="fill" /></button>
-  <div v-else ref="pet" class="guide-pet" :class="[is-, { open }]" :style="{ transform: 	ranslate3d(px, px, 0) }" @pointerdown="beginDrag" @mouseleave="handleMouseLeave">
+  <button v-if="minimized" class="guide-restore" type="button" aria-label="显示暖心引导员" @click="restore">
+    <PhSparkle :size="22" weight="fill" />
+  </button>
+  <div v-else ref="pet" class="guide-pet" :class="['is-' + state, { open }]" :style="{ transform: 'translate3d(' + position.x + 'px, ' + position.y + 'px, 0)' }" @pointerdown="beginDrag" @mouseleave="handleMouseLeave">
     <section v-if="open" class="guide-dialog" aria-label="与暖心引导员对话" @pointerdown.stop>
-      <header><div><span class="guide-online"><i :class="{ offline: providerOnline === false }"></i>小齐 · {{ stateCopy[state] }}</span><small>{{ providerOnline === false ? '当前为本地陪伴模式' : '多轮对话仅在本会话保留' }}</small></div><button type="button" aria-label="最小化引导员" @click="minimize"><PhMinus :size="18" /></button></header>
+      <header>
+        <div>
+          <span class="guide-online"><i :class="{ offline: providerOnline === false }"></i>小齐 · {{ stateCopy[state] }}</span>
+          <small>{{ providerOnline === false ? '当前为本地陪伴模式' : '多轮对话仅在本会话保留' }}</small>
+        </div>
+        <button type="button" aria-label="最小化引导员" @click="minimize"><PhMinus :size="18" /></button>
+      </header>
       <div class="guide-messages" aria-live="polite">
         <div v-for="(item, index) in messages" :key="index" :class="['guide-message', item.role]">
-          <span v-if="item.role === 'assistant'">齐</span><p>{{ item.content || '正在组织语言…' }}</p>
+          <span v-if="item.role === 'assistant'">齐</span>
+          <p>{{ item.content || '正在组织语言…' }}</p>
         </div>
       </div>
       <form class="guide-composer" @submit.prevent="send">
         <input v-model="input" maxlength="4000" placeholder="想聊什么都可以…" aria-label="发送给暖心引导员" @keydown="onInputKeydown">
         <button type="submit" :disabled="loading || !input.trim()" aria-label="发送消息"><PhPaperPlaneTilt :size="19" weight="fill" /></button>
       </form>
-      <footer><button type="button" @click="enterWellbeing">打开暖心空间 <PhArrowUp :size="14" /></button><span>AI 陪伴不能替代专业或紧急支持</span></footer>
+      <footer>
+        <button type="button" @click="enterWellbeing">打开暖心空间 <PhArrowUp :size="14" /></button>
+        <span>AI 陪伴不能替代专业或紧急支持</span>
+      </footer>
     </section>
 
-    <div class="pet-stage" role="button" :aria-label="暖心引导员小齐，，可拖动位置或点击对话" :style="{ perspective: '800px', perspectiveOrigin: '50% 50%' }">
+    <div class="pet-stage" role="button" :aria-label="'暖心引导员小齐，' + stateCopy[state] + '，可拖动位置或点击对话'" :style="{ perspective: '800px', perspectiveOrigin: '50% 50%' }">
       <span class="pet-status">{{ stateCopy[state] }}</span>
       <div class="pet-z">Z<sup>z</sup></div>
       <div class="pet-prop snack">小饼干</div>
       <div class="pet-prop cup"><i></i><b>奶茶</b></div>
       <div class="pet-shadow"></div>
-      <div class="pet-character" :style="{ transform: otateX(deg) rotateY(deg), transformStyle: 'preserve-3d' }">
+      <div class="pet-character" :style="{ transform: 'rotateX(' + rotateX + 'deg) rotateY(' + rotateY + 'deg)', transformStyle: 'preserve-3d' }">
         <div class="pet-3d-body">
           <div class="pet-hair back"></div>
-          <div class="pet-leg left"><i></i></div><div class="pet-leg right"><i></i></div>
+          <div class="pet-leg left"><i></i></div>
+          <div class="pet-leg right"><i></i></div>
           <div class="pet-torso"><span class="pet-scarf"></span><b>齐</b></div>
-          <div class="pet-arm left"></div><div class="pet-arm right"></div>
+          <div class="pet-arm left"></div>
+          <div class="pet-arm right"></div>
           <div class="pet-head">
-            <div class="pet-hair front"></div><span class="pet-ear left"></span><span class="pet-ear right"></span>
-            <div class="pet-face"><i class="pet-eye left"></i><i class="pet-eye right"></i><span class="pet-blush left"></span><span class="pet-blush right"></span><b class="pet-mouth"></b></div>
+            <div class="pet-hair front"></div>
+            <span class="pet-ear left"></span>
+            <span class="pet-ear right"></span>
+            <div class="pet-face">
+              <i class="pet-eye left"></i>
+              <i class="pet-eye right"></i>
+              <span class="pet-blush left"></span>
+              <span class="pet-blush right"></span>
+              <b class="pet-mouth"></b>
+            </div>
           </div>
         </div>
       </div>
