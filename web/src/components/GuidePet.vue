@@ -113,8 +113,8 @@ function handleMouseMove(event: MouseEvent) {
   const centerY = rect.top + rect.height / 2
   const deltaX = (event.clientX - centerX) / (window.innerWidth / 2)
   const deltaY = (event.clientY - centerY) / (window.innerHeight / 2)
-  rotateY.value = Math.max(-20, Math.min(20, deltaX * 20))
-  rotateX.value = Math.max(-12, Math.min(12, -deltaY * 12))
+  rotateY.value = Math.max(-15, Math.min(15, deltaX * 15))
+  rotateX.value = Math.max(-10, Math.min(10, -deltaY * 10))
   isHovering.value = true
 }
 
@@ -187,9 +187,12 @@ onBeforeUnmount(() => {
               <div class="pet-leg right"></div>
             </div>
             
+            <!-- 裙子 -->
+            <div class="pet-skirt"></div>
+            
             <!-- 躯干 -->
             <div class="pet-torso">
-              <div class="pet-scarf"></div>
+              <div class="pet-collar"></div>
               <div class="pet-badge">SDNU</div>
             </div>
             
@@ -200,31 +203,54 @@ onBeforeUnmount(() => {
             <!-- 头部 -->
             <div class="pet-head">
               <div class="pet-hair-front"></div>
+              <div class="pet-hair-side left"></div>
+              <div class="pet-hair-side right"></div>
+              <div class="pet-bangs"></div>
               <div class="pet-ear left"></div>
               <div class="pet-ear right"></div>
               <div class="pet-face">
+                <!-- 可爱的大眼睛 -->
                 <div class="pet-eye left">
-                  <div class="pet-pupil"></div>
+                  <div class="pet-eye-white">
+                    <div class="pet-iris">
+                      <div class="pet-pupil"></div>
+                      <div class="pet-sparkle big"></div>
+                      <div class="pet-sparkle small"></div>
+                    </div>
+                  </div>
+                  <div class="pet-eyelid"></div>
                 </div>
                 <div class="pet-eye right">
-                  <div class="pet-pupil"></div>
+                  <div class="pet-eye-white">
+                    <div class="pet-iris">
+                      <div class="pet-pupil"></div>
+                      <div class="pet-sparkle big"></div>
+                      <div class="pet-sparkle small"></div>
+                    </div>
+                  </div>
+                  <div class="pet-eyelid"></div>
                 </div>
+                <!-- 腮红 -->
                 <div class="pet-blush left"></div>
                 <div class="pet-blush right"></div>
-                <div class="pet-mouth"></div>
+                <!-- 可爱小嘴 -->
+                <div class="pet-mouth">
+                  <div class="pet-smile"></div>
+                </div>
               </div>
-              <!-- 眼镜（glasses状态显示） -->
+              <!-- 眼镜 -->
               <div class="pet-glasses">
                 <div class="pet-glasses-frame left"></div>
                 <div class="pet-glasses-frame right"></div>
                 <div class="pet-glasses-bridge"></div>
               </div>
+              <!-- 发饰 -->
+              <div class="pet-hairbow"></div>
             </div>
           </div>
           
           <!-- 道具层 -->
           <div class="pet-props">
-            <!-- 奶茶 -->
             <div class="pet-prop-milktea">
               <div class="pet-cup">
                 <div class="pet-cup-straw"></div>
@@ -232,7 +258,6 @@ onBeforeUnmount(() => {
                 <div class="pet-cup-lid"></div>
               </div>
             </div>
-            <!-- 糖果 -->
             <div class="pet-prop-candy">
               <div class="pet-candy">
                 <div class="pet-candy-left"></div>
@@ -240,7 +265,6 @@ onBeforeUnmount(() => {
                 <div class="pet-candy-right"></div>
               </div>
             </div>
-            <!-- 书本 -->
             <div class="pet-prop-book">
               <div class="pet-book">
                 <div class="pet-book-cover"></div>
@@ -253,6 +277,13 @@ onBeforeUnmount(() => {
           <!-- 睡眠Z -->
           <div class="pet-zzz">
             <span>Z</span><span>z</span><span>z</span>
+          </div>
+          
+          <!-- 爱心效果 -->
+          <div class="pet-hearts">
+            <span class="pet-heart">&#10084;</span>
+            <span class="pet-heart">&#10084;</span>
+            <span class="pet-heart">&#10084;</span>
           </div>
         </div>
       </div>
