@@ -1,6 +1,6 @@
 ﻿<script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { PhArrowSquareOut, PhFilePlus, PhFunnel, PhLightbulb, PhMagnifyingGlass, PhNewspaper, PhRocketLaunch, PhUsersThree, PhTrophy, PhCalendar, PhUsers, PhStar, PhX, PhArrowLeft } from '@phosphor-icons/vue'
+import { PhArrowSquareOut, PhFilePlus, PhFunnel, PhLightbulb, PhMagnifyingGlass, PhNewspaper, PhRocketLaunch, PhUsersThree, PhTrophy, PhCalendar, PhUsers, PhStar, PhX, PhArrowLeft, PhTarget, PhMedal, PhClock, PhBookOpen } from '@phosphor-icons/vue'
 import { command } from '../api'
 import { useIdentity } from '../identity'
 
@@ -91,13 +91,34 @@ function difficultyColor(difficulty: string) {
 // 难度描述
 function difficultyDesc(difficulty: string) {
   switch (difficulty) {
-    case '低': return '入门级，适合新手参与'
-    case '中': return '中等难度，需要一定基础'
-    case '中高': return '中高难度，建议有相关经验'
-    case '高': return '高难度，需要较强专业能力'
-    case '极高': return '极高难度，需要深厚专业功底'
+    case '低': return '入门级竞赛，适合新手参与，获奖相对容易'
+    case '中': return '中等难度，需要一定专业基础和准备时间'
+    case '中高': return '中高难度，建议有相关项目经验或学习经历'
+    case '高': return '高难度竞赛，需要较强的专业能力和团队协作'
+    case '极高': return '顶级竞赛，需要深厚的专业功底和丰富的实战经验'
     default: return '难度未知'
   }
+}
+
+// 获取竞赛亮点
+function getHighlights(comp: Competition): string[] {
+  const highlights = []
+  if (comp.level === '国家级' || comp.level === '国际级') {
+    highlights.push('权威认证，含金量高')
+  }
+  if (comp.difficulty === '高' || comp.difficulty === '极高') {
+    highlights.push('高难度挑战，获奖者备受认可')
+  }
+  if (comp.teamSize.includes('-') || comp.teamSize.includes('人')) {
+    highlights.push('团队协作，培养合作能力')
+  }
+  if (comp.skills.length > 3) {
+    highlights.push('多技能综合考察')
+  }
+  if (comp.awards.length > 2) {
+    highlights.push('多层次奖项设置')
+  }
+  return highlights.slice(0, 3)
 }
 
 onMounted(() => {
@@ -106,84 +127,129 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="innovation-page">
+  <section class="innovation-page" :class="{ 'detail-mode': selectedCompetition }">
     <!-- 竞赛详情视图 -->
     <div v-if="selectedCompetition" class="competition-detail">
-      <button class="back-btn" @click="backToList">
-        <PhArrowLeft :size="18" /> 返回列表
-      </button>
-      
-      <div class="detail-header">
-        <div class="detail-tags">
-          <span class="category-tag">{{ selectedCompetition.category }}</span>
-          <span class="level-tag">{{ selectedCompetition.level }}</span>
-          <span class="difficulty-tag" :style="{ color: difficultyColor(selectedCompetition.difficulty) }">
-            难度: {{ selectedCompetition.difficulty }}
-          </span>
+      <!-- 顶部导航栏 -->
+      <div class="detail-nav">
+        <button class="back-btn" @click="backToList">
+          <PhArrowLeft :size="20" /> 返回竞赛列表
+        </button>
+        <div class="detail-actions">
+          <a v-if="selectedCompetition.website" :href="selectedCompetition.website" target="_blank" rel="noreferrer" class="action-btn primary">
+            访问官网 <PhArrowSquareOut :size="16" />
+          </a>
         </div>
-        <h1>{{ selectedCompetition.name }}</h1>
-        <p class="detail-description">{{ selectedCompetition.description }}</p>
       </div>
       
-      <div class="detail-grid">
-        <div class="detail-section">
-          <h3><PhCalendar :size="18" /> 时间信息</h3>
-          <div class="info-item">
-            <span class="info-label">比赛时间</span>
-            <span class="info-value">{{ selectedCompetition.time || '待更新' }}</span>
+      <!-- 主要内容区域 -->
+      <div class="detail-main">
+        <!-- 左侧：竞赛基本信息 -->
+        <div class="detail-left">
+          <div class="detail-header">
+            <div class="detail-tags">
+              <span class="category-tag large">{{ selectedCompetition.category }}</span>
+              <span class="level-tag large">{{ selectedCompetition.level }}</span>
+            </div>
+            <h1>{{ selectedCompetition.name }}</h1>
+            <p class="detail-subtitle">{{ selectedCompetition.description }}</p>
           </div>
-          <div class="info-item">
-            <span class="info-label">报名截止</span>
-            <span class="info-value">{{ selectedCompetition.registrationDeadline || '待更新' }}</span>
+          
+          <!-- 竞赛亮点 -->
+          <div class="highlights-section">
+            <h3><PhTarget :size="20" /> 竞赛亮点</h3>
+            <div class="highlights-grid">
+              <div v-for="(highlight, index) in getHighlights(selectedCompetition)" :key="index" class="highlight-item">
+                <div class="highlight-icon">{{ index + 1 }}</div>
+                <span>{{ highlight }}</span>
+              </div>
+            </div>
           </div>
-        </div>
-        
-        <div class="detail-section">
-          <h3><PhUsers :size="18" /> 参赛信息</h3>
-          <div class="info-item">
-            <span class="info-label">团队规模</span>
-            <span class="info-value">{{ selectedCompetition.teamSize }}</span>
+          
+          <!-- 详细描述 -->
+          <div class="detail-description-section">
+            <h3><PhBookOpen :size="20" /> 竞赛介绍</h3>
+            <div class="description-content">
+              <p>{{ selectedCompetition.description }}</p>
+              <p>该竞赛由<strong>{{ selectedCompetition.organizer || '相关机构' }}</strong>主办，面向全国大学生开放。</p>
+              <p v-if="selectedCompetition.teamSize.includes('-')">参赛团队规模为<strong>{{ selectedCompetition.teamSize }}</strong>，需要组建团队共同完成项目。</p>
+              <p v-else>该竞赛为<strong>{{ selectedCompetition.teamSize }}</strong>赛制。</p>
+            </div>
           </div>
-          <div class="info-item">
-            <span class="info-label">主办单位</span>
-            <span class="info-value">{{ selectedCompetition.organizer || '待更新' }}</span>
-          </div>
-        </div>
-        
-        <div class="detail-section">
-          <h3><PhStar :size="18" /> 难度评估</h3>
-          <div class="difficulty-bar">
-            <div class="difficulty-fill" :style="{ width: selectedCompetition.difficulty === '低' ? '20%' : selectedCompetition.difficulty === '中' ? '40%' : selectedCompetition.difficulty === '中高' ? '60%' : selectedCompetition.difficulty === '高' ? '80%' : '100%', backgroundColor: difficultyColor(selectedCompetition.difficulty) }"></div>
-          </div>
-          <p class="difficulty-desc">{{ difficultyDesc(selectedCompetition.difficulty) }}</p>
-        </div>
-        
-        <div class="detail-section full-width">
-          <h3><PhTrophy :size="18" /> 所需技能</h3>
-          <div class="skills-list">
-            <span v-for="skill in selectedCompetition.skills" :key="skill" class="skill-tag">{{ skill }}</span>
-          </div>
-        </div>
-        
-        <div class="detail-section full-width">
-          <h3><PhTrophy :size="18" /> 奖项设置</h3>
-          <div class="awards-list">
-            <span v-for="award in selectedCompetition.awards" :key="award" class="award-tag">{{ award }}</span>
+          
+          <!-- 参赛建议 -->
+          <div v-if="selectedCompetition.tips" class="tips-section">
+            <h3><PhLightbulb :size="20" /> 参赛建议</h3>
+            <div class="tips-content">
+              <p>{{ selectedCompetition.tips }}</p>
+            </div>
           </div>
         </div>
         
-        <div v-if="selectedCompetition.tips" class="detail-section full-width">
-          <h3><PhLightbulb :size="18" /> 参赛建议</h3>
-          <div class="tips-box">
-            {{ selectedCompetition.tips }}
+        <!-- 右侧：关键信息卡片 -->
+        <div class="detail-right">
+          <!-- 时间信息卡片 -->
+          <div class="info-card">
+            <h4><PhClock :size="18" /> 时间安排</h4>
+            <div class="info-row">
+              <span class="label">比赛时间</span>
+              <span class="value">{{ selectedCompetition.time || '待更新' }}</span>
+            </div>
+            <div class="info-row">
+              <span class="label">报名截止</span>
+              <span class="value highlight">{{ selectedCompetition.registrationDeadline || '待更新' }}</span>
+            </div>
           </div>
-        </div>
-        
-        <div v-if="selectedCompetition.website" class="detail-section full-width">
-          <h3><PhArrowSquareOut :size="18" /> 官方网站</h3>
-          <a :href="selectedCompetition.website" target="_blank" rel="noreferrer" class="website-link">
-            访问官网 <PhArrowSquareOut :size="14" />
-          </a>
+          
+          <!-- 参赛信息卡片 -->
+          <div class="info-card">
+            <h4><PhUsers :size="18" /> 参赛信息</h4>
+            <div class="info-row">
+              <span class="label">团队规模</span>
+              <span class="value">{{ selectedCompetition.teamSize }}</span>
+            </div>
+            <div class="info-row">
+              <span class="label">竞赛级别</span>
+              <span class="value">{{ selectedCompetition.level }}</span>
+            </div>
+            <div class="info-row">
+              <span class="label">主办单位</span>
+              <span class="value small">{{ selectedCompetition.organizer || '待更新' }}</span>
+            </div>
+          </div>
+          
+          <!-- 难度评估卡片 -->
+          <div class="info-card difficulty-card">
+            <h4><PhStar :size="18" /> 难度评估</h4>
+            <div class="difficulty-visual">
+              <div class="difficulty-level" :style="{ color: difficultyColor(selectedCompetition.difficulty) }">
+                {{ selectedCompetition.difficulty }}
+              </div>
+              <div class="difficulty-bar">
+                <div class="difficulty-fill" :style="{ width: selectedCompetition.difficulty === '低' ? '20%' : selectedCompetition.difficulty === '中' ? '40%' : selectedCompetition.difficulty === '中高' ? '60%' : selectedCompetition.difficulty === '高' ? '80%' : '100%', backgroundColor: difficultyColor(selectedCompetition.difficulty) }"></div>
+              </div>
+              <p class="difficulty-desc">{{ difficultyDesc(selectedCompetition.difficulty) }}</p>
+            </div>
+          </div>
+          
+          <!-- 所需技能卡片 -->
+          <div class="info-card">
+            <h4><PhMedal :size="18" /> 所需技能</h4>
+            <div class="skills-grid">
+              <span v-for="skill in selectedCompetition.skills" :key="skill" class="skill-badge">{{ skill }}</span>
+            </div>
+          </div>
+          
+          <!-- 奖项设置卡片 -->
+          <div class="info-card">
+            <h4><PhTrophy :size="18" /> 奖项设置</h4>
+            <div class="awards-grid">
+              <div v-for="(award, index) in selectedCompetition.awards" :key="award" class="award-item" :class="{ 'gold': index === 0, 'silver': index === 1, 'bronze': index === 2 }">
+                <span class="award-rank">{{ index + 1 }}</span>
+                <span class="award-name">{{ award }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
