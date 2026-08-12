@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { PhArrowUp, PhMinus, PhPaperPlaneTilt, PhSparkle } from '@phosphor-icons/vue'
 import { chatHistory, streamChat, type ChatMessage } from '../api'
 
-type PetState = 'idle' | 'wave' | 'sleep' | 'snack' | 'milktea' | 'listening' | 'thinking' | 'talking' | 'caring'
+type PetState = 'idle' | 'wave' | 'sleep' | 'snack' | 'milktea' | 'glasses' | 'listening' | 'thinking' | 'talking' | 'caring'
 const router = useRouter()
 const route = useRoute()
 const pet = ref<HTMLElement | null>(null)
@@ -25,9 +25,9 @@ let origin = { x: 0, y: 0, left: 0, top: 0 }
 let dragged = false
 let idleTimer: number | undefined
 
-const idleStates: PetState[] = ['idle', 'wave', 'sleep', 'snack', 'milktea']
+const idleStates: PetState[] = ['idle', 'wave', 'sleep', 'snack', 'milktea', 'glasses']
 const stateCopy: Record<PetState, string> = {
-  idle: '在陪你', wave: '今天也见面啦', sleep: '打个小盹', snack: '补充一点能量', milktea: '奶茶时间',
+  idle: '在陪你', wave: '今天也见面啦', sleep: '打个小盹', snack: '吃颗糖果', milktea: '喝杯奶茶', glasses: '看书学习中',
   listening: '认真听你说', thinking: '正在想一想', talking: '正在回应', caring: '先陪你稳住',
 }
 
@@ -101,27 +101,20 @@ function scheduleIdle() {
   idleTimer = window.setTimeout(() => {
     if (!open.value && !minimized.value && pointerId === null) state.value = idleStates[Math.floor(Math.random() * idleStates.length)]
     scheduleIdle()
-  }, 8000 + Math.random() * 7000)
+  }, 6000 + Math.random() * 6000)
 }
 function handleResize() { position.value = clampPosition(position.value.x, position.value.y) }
 function openFromPage() { if (minimized.value) minimized.value = false; if (!open.value) void toggleDialog() }
 
-// 3D鼠标跟踪效果
 function handleMouseMove(event: MouseEvent) {
   if (!pet.value || open.value) return
   const rect = pet.value.getBoundingClientRect()
   const centerX = rect.left + rect.width / 2
   const centerY = rect.top + rect.height / 2
-  const mouseX = event.clientX
-  const mouseY = event.clientY
-  
-  // 计算鼠标相对于角色中心的角度
-  const deltaX = (mouseX - centerX) / (window.innerWidth / 2)
-  const deltaY = (mouseY - centerY) / (window.innerHeight / 2)
-  
-  // 限制旋转角度在±25度范围内
-  rotateY.value = Math.max(-25, Math.min(25, deltaX * 25))
-  rotateX.value = Math.max(-15, Math.min(15, -deltaY * 15))
+  const deltaX = (event.clientX - centerX) / (window.innerWidth / 2)
+  const deltaY = (event.clientY - centerY) / (window.innerHeight / 2)
+  rotateY.value = Math.max(-20, Math.min(20, deltaX * 20))
+  rotateX.value = Math.max(-12, Math.min(12, -deltaY * 12))
   isHovering.value = true
 }
 
@@ -179,32 +172,93 @@ onBeforeUnmount(() => {
 
     <div class="pet-stage" role="button" :aria-label="'暖心引导员小齐，' + stateCopy[state] + '，可拖动位置或点击对话'">
       <span class="pet-status">{{ stateCopy[state] }}</span>
-      <div class="pet-z">Z<sup>z</sup></div>
-      <div class="pet-prop snack">小饼干</div>
-      <div class="pet-prop cup"><i></i><b>奶茶</b></div>
-      <div class="pet-shadow"></div>
-      <div class="pet-character" :style="{ transform: 'rotateX(' + rotateX + 'deg) rotateY(' + rotateY + 'deg)' }">
-        <div class="pet-3d-body">
-          <div class="pet-hair back"></div>
-          <div class="pet-leg left"><i></i></div>
-          <div class="pet-leg right"><i></i></div>
-          <div class="pet-torso"><span class="pet-scarf"></span><b>SDNU</b></div>
-          <div class="pet-arm left"></div>
-          <div class="pet-arm right"></div>
-          <div class="pet-head">
-            <div class="pet-hair front"></div>
-            <span class="pet-ear left"></span>
-            <span class="pet-ear right"></span>
-            <div class="pet-face">
-              <i class="pet-eye left"></i>
-              <i class="pet-eye right"></i>
-              <span class="pet-blush left"></span>
-              <span class="pet-blush right"></span>
-              <b class="pet-mouth"></b>
+      
+      <!-- 3D角色容器 -->
+      <div class="pet-3d-scene">
+        <div class="pet-character" :style="{ transform: 'rotateX(' + rotateX + 'deg) rotateY(' + rotateY + 'deg)' }">
+          <!-- 身体主体 -->
+          <div class="pet-body">
+            <!-- 头发后层 -->
+            <div class="pet-hair-back"></div>
+            
+            <!-- 腿部 -->
+            <div class="pet-legs">
+              <div class="pet-leg left"></div>
+              <div class="pet-leg right"></div>
             </div>
+            
+            <!-- 躯干 -->
+            <div class="pet-torso">
+              <div class="pet-scarf"></div>
+              <div class="pet-badge">SDNU</div>
+            </div>
+            
+            <!-- 手臂 -->
+            <div class="pet-arm left"></div>
+            <div class="pet-arm right"></div>
+            
+            <!-- 头部 -->
+            <div class="pet-head">
+              <div class="pet-hair-front"></div>
+              <div class="pet-ear left"></div>
+              <div class="pet-ear right"></div>
+              <div class="pet-face">
+                <div class="pet-eye left">
+                  <div class="pet-pupil"></div>
+                </div>
+                <div class="pet-eye right">
+                  <div class="pet-pupil"></div>
+                </div>
+                <div class="pet-blush left"></div>
+                <div class="pet-blush right"></div>
+                <div class="pet-mouth"></div>
+              </div>
+              <!-- 眼镜（glasses状态显示） -->
+              <div class="pet-glasses">
+                <div class="pet-glasses-frame left"></div>
+                <div class="pet-glasses-frame right"></div>
+                <div class="pet-glasses-bridge"></div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 道具层 -->
+          <div class="pet-props">
+            <!-- 奶茶 -->
+            <div class="pet-prop-milktea">
+              <div class="pet-cup">
+                <div class="pet-cup-straw"></div>
+                <div class="pet-cup-body"></div>
+                <div class="pet-cup-lid"></div>
+              </div>
+            </div>
+            <!-- 糖果 -->
+            <div class="pet-prop-candy">
+              <div class="pet-candy">
+                <div class="pet-candy-left"></div>
+                <div class="pet-candy-center"></div>
+                <div class="pet-candy-right"></div>
+              </div>
+            </div>
+            <!-- 书本 -->
+            <div class="pet-prop-book">
+              <div class="pet-book">
+                <div class="pet-book-cover"></div>
+                <div class="pet-book-pages"></div>
+                <div class="pet-book-text">ABC</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 睡眠Z -->
+          <div class="pet-zzz">
+            <span>Z</span><span>z</span><span>z</span>
           </div>
         </div>
       </div>
+      
+      <!-- 阴影 -->
+      <div class="pet-shadow"></div>
     </div>
   </div>
 </template>
