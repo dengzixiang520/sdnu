@@ -1,4 +1,4 @@
-"""Composition root for application dependencies."""
+﻿"""Composition root for application dependencies."""
 
 from zhihui_qilu.agents.router import SuperAgentRouter
 from zhihui_qilu.ai.provider import DeepSeekProvider, OfflineProvider
@@ -13,6 +13,7 @@ from zhihui_qilu.skills.academic import AcademicSkill
 from zhihui_qilu.skills.innovation import InnovationSkill
 from zhihui_qilu.skills.document_engine import DocumentEngineSkill
 from zhihui_qilu.skills.wellbeing import WellbeingSkill
+from zhihui_qilu.competition_service import CompetitionService
 from zhihui_qilu.wellbeing_service import WellbeingService
 
 
@@ -38,4 +39,5 @@ class PlatformContainer:
         self.wellbeing = WellbeingService(self.memory, self.security_gateway, settings)
         self.academic = AcademicService(self.memory, settings)
         self.innovation = InnovationSkill()
+        self.competition_service = CompetitionService("./data")
         self.router = SuperAgentRouter(self.security_gateway, [WellbeingSkill(self.wellbeing), DormitorySkill(), AcademicSkill(self.academic), self.innovation, DocumentEngineSkill()])

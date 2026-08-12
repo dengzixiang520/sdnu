@@ -112,3 +112,194 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   .interview-top { align-items: flex-start; flex-wrap: wrap; }.interview-lobby form > div { grid-template-columns: 1fr; }.interview-transcript article { max-width: 95%; }.answer-console > div { gap: .5rem; }.answer-console button { flex: 1; justify-content: center; }
   .guide-pet { width: 70px; height: 112px; }.pet-character { left: -6px; bottom: 7px; transform: scale(.58); }.pet-shadow { left: 10px; bottom: 7px; width: 54px; height: 9px; }.pet-status { display: none; }.pet-prop, .pet-z { transform: scale(.72); transform-origin: 100% 100%; }
 }
+
+/* ==================== 竞赛卡片样式 ==================== */
+.competition-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  background: rgba(255, 254, 248, 0.95);
+  border: 1px solid #d8ded4;
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+.competition-card:hover {
+  box-shadow: 0 4px 16px rgba(25, 58, 55, 0.1);
+  transform: translateY(-2px);
+}
+
+.competition-card .notice-kind {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.category-tag {
+  padding: 4px 10px;
+  background: #e8f4f0;
+  color: #397f72;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.level-tag {
+  padding: 4px 10px;
+  background: #fff3e0;
+  color: #e65100;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.competition-info h2 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  color: #172b2a;
+}
+
+.competition-info .description {
+  color: #667572;
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.competition-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #526764;
+}
+
+.competition-meta span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.skills-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.skill-tag {
+  padding: 3px 8px;
+  background: #f0f7f4;
+  color: #4d9484;
+  border-radius: 4px;
+  font-size: 12px;
+  border: 1px solid #dfece5;
+}
+
+.awards-list {
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.awards-list strong {
+  color: #172b2a;
+  margin-right: 8px;
+}
+
+.award-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #fff8e1;
+  color: #f57f17;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-right: 6px;
+  margin-bottom: 4px;
+}
+
+.tips {
+  padding: 12px;
+  background: #f5f4eb;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #526764;
+  line-height: 1.6;
+}
+
+.tips strong {
+  color: #172b2a;
+}
+
+.website-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #397f72;
+  color: white;
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  align-self: flex-start;
+  transition: background 0.2s;
+}
+
+.website-link:hover {
+  background: #2d6659;
+}
+
+.import-btn {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 10px 20px;
+  background: #397f72;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.import-btn:hover {
+  background: #2d6659;
+}
+
+.stats-panel {
+  padding: 16px;
+  background: rgba(255, 254, 248, 0.95);
+  border: 1px solid #d8ded4;
+  border-radius: 12px;
+}
+
+.stats-panel h3 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  color: #172b2a;
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.stat-item:last-child {
+  border-bottom: none;
+}
+
+.stat-label {
+  color: #667572;
+  font-size: 14px;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #397f72;
+}
