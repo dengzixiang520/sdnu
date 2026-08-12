@@ -88,866 +88,191 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
 /* ==================== 3D 导航员 ==================== */
 
 /* ==================== 温柔可爱的女孩子导航员 ==================== */
-.guide-pet {
-  position: fixed;
-  left: 0;
-  top: 0;
-  z-index: 110;
-  width: 140px;
-  height: 210px;
-  user-select: none;
-  touch-action: none;
-  cursor: grab;
-  filter: drop-shadow(0 10px 20px rgba(180, 120, 140, 0.25));
-  transition: filter 0.3s ease;
-}
 
+/* ==================== 导航员（第一版样式 + 互动功能）==================== */
+.guide-pet { position: fixed; left: 0; top: 0; z-index: 110; width: 124px; height: 184px; user-select: none; touch-action: none; cursor: grab; }
 .guide-pet:active { cursor: grabbing; }
-.guide-pet:hover { filter: drop-shadow(0 14px 28px rgba(180, 120, 140, 0.35)); }
 
-/* 状态文字 */
-.pet-status {
-  position: absolute;
-  left: 50%;
-  bottom: -10px;
-  z-index: 10;
-  padding: 5px 14px;
-  color: #8b5e6b;
-  background: rgba(255, 248, 250, 0.95);
-  border: 1px solid #f0d4dc;
-  border-radius: 20px;
-  box-shadow: 0 4px 14px rgba(200, 150, 170, 0.2);
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  transform: translateX(-50%);
-  opacity: 0;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  backdrop-filter: blur(8px);
-}
+.pet-stage { position: absolute; inset: 0; }
 
-.guide-pet:hover .pet-status {
-  opacity: 1;
-  bottom: -14px;
-}
+.pet-status { position: absolute; left: 50%; bottom: 0; z-index: 5; padding: .25rem .55rem; color: #31544f; background: rgba(255,254,248,.94); border: 1px solid #d7dfd8; border-radius: 999px; box-shadow: 0 6px 15px rgba(35,66,60,.1); font-size: .66rem; white-space: nowrap; transform: translateX(-50%); opacity: 0; transition: opacity .2s; }
+.guide-pet:hover .pet-status { opacity: 1; }
 
-/* 3D场景容器 */
-.pet-stage {
-  position: absolute;
-  inset: 0;
-  perspective: 1000px;
-  perspective-origin: 50% 35%;
-}
-
-.pet-3d-scene {
-  position: absolute;
-  inset: 0;
-  transform-style: preserve-3d;
-}
+.pet-shadow { position: absolute; left: 24px; bottom: 18px; width: 78px; height: 14px; background: rgba(25,58,55,.16); border-radius: 50%; filter: blur(4px); }
 
 /* 角色主体 */
-.pet-character {
-  position: absolute;
-  left: 50%;
-  bottom: 35px;
-  width: 100px;
-  height: 165px;
-  transform: translateX(-50%);
-  transform-style: preserve-3d;
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  animation: girl-idle 4s ease-in-out infinite;
-}
+.pet-character { position: absolute; left: 21px; bottom: 22px; width: 82px; height: 148px; transform-origin: 50% 100%; animation: pet-idle 3.2s ease-in-out infinite; transition: transform 0.15s ease-out; }
 
-.pet-body {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  transform-style: preserve-3d;
-}
+/* 头部 */
+.pet-head { position: absolute; left: 9px; top: 5px; z-index: 5; width: 64px; height: 61px; background: #f6c9aa; border-radius: 46% 46% 44% 44%; box-shadow: inset 0 -5px 8px rgba(190,111,88,.08); }
 
-/* ===== 头发 ===== */
-.pet-hair-back {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  width: 76px;
-  height: 95px;
-  background: linear-gradient(180deg, #4a3228, #3d2a22);
-  border-radius: 50% 50% 40% 40%;
-  transform: translateX(-50%) translateZ(-12px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.pet-hair-front {
-  position: absolute;
-  left: 50%;
-  top: -5px;
-  width: 70px;
-  height: 35px;
-  background: linear-gradient(180deg, #5a3d30, #4a3228);
-  border-radius: 50% 50% 45% 45%;
-  transform: translateX(-50%) translateZ(15px);
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
-}
-
-.pet-hair-side {
-  position: absolute;
-  top: 25px;
-  width: 18px;
-  height: 55px;
-  background: linear-gradient(180deg, #4a3228, #3d2a22);
-  border-radius: 0 0 50% 50%;
-  transform: translateZ(8px);
-}
-
-.pet-hair-side.left { left: 2px; transform: translateZ(8px) rotate(5deg); }
-.pet-hair-side.right { right: 2px; transform: translateZ(8px) rotate(-5deg); }
-
-.pet-bangs {
-  position: absolute;
-  left: 50%;
-  top: 5px;
-  width: 58px;
-  height: 22px;
-  background: linear-gradient(180deg, #5a3d30 60%, transparent);
-  border-radius: 0 0 50% 50%;
-  transform: translateX(-50%) translateZ(18px);
-}
-
-/* 发饰蝴蝶结 */
-.pet-hairbow {
-  position: absolute;
-  right: 8px;
-  top: 12px;
-  width: 22px;
-  height: 16px;
-  transform: translateZ(20px);
-}
-
-.pet-hairbow::before,
-.pet-hairbow::after {
-  content: '';
-  position: absolute;
-  width: 12px;
-  height: 14px;
-  background: linear-gradient(135deg, #ff8fab, #ff6b8a);
-  border-radius: 50% 50% 50% 50%;
-  box-shadow: 0 2px 6px rgba(255, 107, 138, 0.3);
-}
-
-.pet-hairbow::before { left: 0; transform: rotate(-15deg); }
-.pet-hairbow::after { right: 0; transform: rotate(15deg); }
-
-/* ===== 头部 ===== */
-.pet-head {
-  position: absolute;
-  left: 50%;
-  top: 8px;
-  width: 62px;
-  height: 58px;
-  background: linear-gradient(180deg, #ffe4d4, #ffd4c0);
-  border-radius: 50% 50% 46% 46%;
-  transform: translateX(-50%) translateZ(20px);
-  box-shadow: 
-    0 6px 18px rgba(0, 0, 0, 0.1),
-    inset 0 -3px 6px rgba(200, 150, 130, 0.15);
-}
+/* 头发 */
+.pet-hair.back { position: absolute; left: 4px; top: 2px; z-index: 1; width: 74px; height: 72px; background: #263f3e; border-radius: 46% 46% 35% 35%; }
+.pet-hair.front { position: absolute; left: -2px; top: -4px; z-index: 2; width: 68px; height: 28px; background: #263f3e; border-radius: 55% 45% 50% 25%; transform: rotate(-3deg); }
+.pet-hair.front::after { content: ""; position: absolute; right: 5px; bottom: -13px; width: 18px; height: 28px; background: #263f3e; border-radius: 0 0 50% 50%; transform: rotate(15deg); }
 
 /* 耳朵 */
-.pet-ear {
-  position: absolute;
-  top: 26px;
-  width: 10px;
-  height: 14px;
-  background: linear-gradient(180deg, #ffd4c0, #ffc4aa);
-  border-radius: 50%;
-  transform: translateZ(8px);
-}
+.pet-ear { position: absolute; top: 25px; width: 10px; height: 18px; background: #f2bea0; border-radius: 50%; }
+.pet-ear.left { left: -5px; }
+.pet-ear.right { right: -5px; }
 
-.pet-ear.left { left: -4px; }
-.pet-ear.right { right: -4px; }
+/* 脸部 */
+.pet-face { position: absolute; inset: 0; z-index: 3; }
+.pet-eye { position: absolute; top: 31px; width: 6px; height: 8px; background: #263f3e; border-radius: 50%; animation: blink 4.5s infinite; }
+.pet-eye.left { left: 18px; }
+.pet-eye.right { right: 18px; }
+.pet-blush { position: absolute; top: 42px; width: 10px; height: 4px; background: rgba(218,104,91,.3); border-radius: 50%; }
+.pet-blush.left { left: 8px; }
+.pet-blush.right { right: 8px; }
+.pet-mouth { position: absolute; left: 50%; top: 44px; width: 10px; height: 5px; border: 2px solid #a4534b; border-top: 0; border-radius: 0 0 10px 10px; transform: translateX(-50%); }
 
-/* ===== 脸部 ===== */
-.pet-face {
-  position: absolute;
-  inset: 0;
-  transform: translateZ(12px);
-}
+/* 躯干 */
+.pet-torso { position: absolute; left: 13px; top: 57px; z-index: 3; width: 56px; height: 65px; background: #4d9484; border-radius: 17px 17px 12px 12px; box-shadow: inset -7px 0 9px rgba(23,63,67,.12); }
+.pet-torso b { position: absolute; left: 50%; top: 22px; width: 42px; height: 22px; display: grid; place-items: center; color: #7f322a; background: #f7dc94; border-radius: 6px; font: 700 .55rem "Noto Sans SC Variable", sans-serif; transform: translateX(-50%); letter-spacing: 1px; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
 
-/* 可爱大眼睛 */
-.pet-eye {
-  position: absolute;
-  top: 24px;
-  width: 20px;
-  height: 22px;
-  animation: cute-blink 4s ease-in-out infinite;
-}
-
-.pet-eye.left { left: 10px; }
-.pet-eye.right { right: 10px; }
-
-.pet-eye-white {
-  width: 100%;
-  height: 100%;
-  background: white;
-  border-radius: 50%;
-  box-shadow: 
-    0 2px 6px rgba(0, 0, 0, 0.08),
-    inset 0 -2px 4px rgba(0, 0, 0, 0.02);
-  overflow: hidden;
-  position: relative;
-}
-
-.pet-iris {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 14px;
-  height: 15px;
-  background: radial-gradient(circle at 40% 40%, #6b4e3d, #4a3228);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  animation: gentle-look 5s ease-in-out infinite;
-}
-
-.pet-pupil {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 8px;
-  height: 9px;
-  background: #1a1210;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.pet-sparkle {
-  position: absolute;
-  background: white;
-  border-radius: 50%;
-  box-shadow: 0 0 4px white;
-}
-
-.pet-sparkle.big {
-  left: 3px;
-  top: 3px;
-  width: 5px;
-  height: 5px;
-}
-
-.pet-sparkle.small {
-  right: 4px;
-  bottom: 5px;
-  width: 3px;
-  height: 3px;
-}
-
-.pet-eyelid {
-  position: absolute;
-  top: -1px;
-  left: -1px;
-  right: -1px;
-  height: 0%;
-  background: linear-gradient(180deg, #ffe4d4, #ffd4c0);
-  border-radius: 50% 50% 0 0;
-  transition: height 0.15s ease;
-}
-
-/* 腮红 */
-.pet-blush {
-  position: absolute;
-  top: 38px;
-  width: 16px;
-  height: 10px;
-  background: radial-gradient(ellipse, rgba(255, 150, 160, 0.4), transparent);
-  border-radius: 50%;
-}
-
-.pet-blush.left { left: 3px; }
-.pet-blush.right { right: 3px; }
-
-/* 可爱小嘴 */
-.pet-mouth {
-  position: absolute;
-  left: 50%;
-  top: 44px;
-  transform: translateX(-50%) translateZ(5px);
-}
-
-.pet-smile {
-  width: 14px;
-  height: 8px;
-  border: 2.5px solid #e07060;
-  border-top: none;
-  border-radius: 0 0 14px 14px;
-  background: rgba(224, 112, 96, 0.1);
-}
-
-/* 眼镜 */
-.pet-glasses {
-  position: absolute;
-  top: 20px;
-  left: 50%;
-  transform: translateX(-50%) translateZ(16px);
-  opacity: 0;
-  transition: opacity 0.5s ease;
-}
-
-.pet-glasses-frame {
-  position: absolute;
-  width: 24px;
-  height: 20px;
-  border: 2.5px solid #8b6f5e;
-  border-radius: 50%;
-  background: rgba(200, 220, 255, 0.12);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
-}
-
-.pet-glasses-frame.left { left: -30px; }
-.pet-glasses-frame.right { right: -30px; }
-
-.pet-glasses-bridge {
-  position: absolute;
-  left: 50%;
-  top: 7px;
-  width: 12px;
-  height: 3px;
-  background: #8b6f5e;
-  transform: translateX(-50%);
-  border-radius: 2px;
-}
-
-.guide-pet.is-glasses .pet-glasses { opacity: 1; }
-
-/* ===== 身体 ===== */
-.pet-torso {
-  position: absolute;
-  left: 50%;
-  top: 58px;
-  width: 52px;
-  height: 45px;
-  background: linear-gradient(180deg, #7eb8a8, #6aa898);
-  border-radius: 16px 16px 8px 8px;
-  transform: translateX(-50%) translateZ(12px);
-  box-shadow: 
-    0 6px 18px rgba(0, 0, 0, 0.12),
-    inset 0 -4px 8px rgba(0, 0, 0, 0.08);
-}
-
-.pet-collar {
-  position: absolute;
-  left: 50%;
-  top: -2px;
-  width: 36px;
-  height: 12px;
-  background: white;
-  border-radius: 6px 6px 0 0;
-  transform: translateX(-50%) translateZ(3px);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-}
-
-.pet-badge {
-  position: absolute;
-  left: 50%;
-  top: 18px;
-  width: 38px;
-  height: 18px;
-  background: linear-gradient(135deg, #ffe4a0, #ffd480);
-  border-radius: 5px;
-  transform: translateX(-50%) translateZ(5px);
-  display: grid;
-  place-items: center;
-  font: 700 9px "Noto Sans SC Variable", sans-serif;
-  color: #8b6040;
-  letter-spacing: 1.2px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-}
-
-/* 裙子 */
-.pet-skirt {
-  position: absolute;
-  left: 50%;
-  top: 95px;
-  width: 60px;
-  height: 35px;
-  background: linear-gradient(180deg, #7eb8a8, #5a9888);
-  border-radius: 8px 8px 50% 50%;
-  transform: translateX(-50%) translateZ(10px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
+/* 围巾 */
+.pet-scarf { position: absolute; left: 4px; top: -2px; width: 49px; height: 15px; background: #d8614d; border-radius: 8px; }
+.pet-scarf::after { content: ""; position: absolute; right: 4px; top: 9px; width: 12px; height: 28px; background: #d8614d; border-radius: 4px 4px 8px 8px; transform: rotate(-8deg); }
 
 /* 手臂 */
-.pet-arm {
-  position: absolute;
-  top: 62px;
-  width: 16px;
-  height: 42px;
-  background: linear-gradient(180deg, #7eb8a8, #6aa898);
-  border-radius: 10px;
-  transform-origin: 50% 8px;
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
-}
-
-.pet-arm.left {
-  left: 6px;
-  transform: translateZ(8px) rotate(10deg);
-}
-
-.pet-arm.right {
-  right: 6px;
-  transform: translateZ(8px) rotate(-10deg);
-}
-
-.pet-arm::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: -5px;
-  width: 12px;
-  height: 12px;
-  background: linear-gradient(180deg, #ffe4d4, #ffd4c0);
-  border-radius: 50%;
-  transform: translateX(-50%);
-}
+.pet-arm { position: absolute; top: 65px; z-index: 2; width: 17px; height: 54px; background: #4d9484; border-radius: 12px; transform-origin: 50% 8px; }
+.pet-arm.left { left: 5px; transform: rotate(9deg); }
+.pet-arm.right { right: 5px; transform: rotate(-9deg); }
+.pet-arm::after { content: ""; position: absolute; left: 2px; bottom: -5px; width: 13px; height: 15px; background: #f6c9aa; border-radius: 50%; }
 
 /* 腿部 */
-.pet-legs {
-  position: absolute;
-  left: 50%;
-  top: 125px;
-  transform: translateX(-50%) translateZ(6px);
-  display: flex;
-  gap: 10px;
-}
+.pet-leg { position: absolute; top: 115px; z-index: 2; width: 20px; height: 30px; background: #294e56; border-radius: 0 0 8px 8px; }
+.pet-leg.left { left: 18px; }
+.pet-leg.right { right: 18px; }
+.pet-leg i { position: absolute; left: -2px; bottom: -5px; width: 25px; height: 10px; background: #e7d8bd; border-radius: 10px 10px 5px 5px; }
 
-.pet-leg {
-  width: 18px;
-  height: 30px;
-  background: linear-gradient(180deg, #ffe4d4, #ffd4c0);
-  border-radius: 6px 6px 8px 8px;
-  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.08);
-  position: relative;
-}
-
-.pet-leg::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: -4px;
-  width: 24px;
-  height: 10px;
-  background: linear-gradient(180deg, #ff8fab, #ff6b8a);
-  border-radius: 10px 10px 6px 6px;
-  transform: translateX(-50%);
-  box-shadow: 0 2px 4px rgba(255, 107, 138, 0.2);
-}
-
-/* 阴影 */
-.pet-shadow {
-  position: absolute;
-  left: 50%;
-  bottom: 20px;
-  width: 80px;
-  height: 16px;
-  background: radial-gradient(ellipse, rgba(100, 70, 80, 0.2), transparent 70%);
-  border-radius: 50%;
-  transform: translateX(-50%) translateZ(-25px) rotateX(75deg);
-  filter: blur(5px);
-  transition: all 0.4s ease;
-}
-
-.guide-pet:hover .pet-shadow {
-  width: 90px;
-  height: 20px;
-  opacity: 0.8;
-}
-
-/* ===== 爱心效果 ===== */
-.pet-hearts {
-  position: absolute;
-  left: 50%;
-  top: -10px;
-  transform: translateX(-50%) translateZ(40px);
-  opacity: 0;
-  pointer-events: none;
-}
-
-.guide-pet.is-caring .pet-hearts,
-.guide-pet.is-wave .pet-hearts {
-  opacity: 1;
-}
-
-.pet-heart {
-  position: absolute;
-  color: #ff8fab;
-  font-size: 14px;
-  animation: heart-float 2s ease-in-out infinite;
-}
-
-.pet-heart:nth-child(1) { left: -20px; animation-delay: 0s; }
-.pet-heart:nth-child(2) { left: 0; top: -8px; animation-delay: 0.4s; font-size: 11px; }
-.pet-heart:nth-child(3) { left: 15px; animation-delay: 0.8s; font-size: 16px; }
-
-/* ===== 道具 ===== */
-.pet-props {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-/* 奶茶 */
-.pet-prop-milktea {
-  position: absolute;
-  right: -22px;
-  top: 65px;
-  opacity: 0;
-  transform: translateZ(22px) scale(0.8);
-  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.guide-pet.is-milktea .pet-prop-milktea {
-  opacity: 1;
-  transform: translateZ(22px) scale(1);
-}
-
-.pet-cup { position: relative; width: 26px; height: 38px; }
-
-.pet-cup-body {
-  width: 26px;
-  height: 30px;
-  background: linear-gradient(180deg, #fff0e0, #ffe0c8);
-  border-radius: 4px 4px 10px 10px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-  position: absolute;
-  bottom: 0;
-}
-
-.pet-cup-lid {
-  position: absolute;
-  top: 0;
-  left: -2px;
-  width: 30px;
-  height: 8px;
-  background: linear-gradient(180deg, #e8c8a0, #d8b890);
-  border-radius: 5px 5px 2px 2px;
-}
-
-.pet-cup-straw {
-  position: absolute;
-  left: 50%;
-  top: -12px;
-  width: 4px;
-  height: 24px;
-  background: linear-gradient(180deg, #ff8fab, #ff6b8a);
-  border-radius: 2px;
-  transform: translateX(-50%) rotate(8deg);
-}
-
-/* 糖果 */
-.pet-prop-candy {
-  position: absolute;
-  left: -12px;
-  top: 50px;
-  opacity: 0;
-  transform: translateZ(18px) scale(0.8) rotate(-10deg);
-  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.guide-pet.is-snack .pet-prop-candy {
-  opacity: 1;
-  transform: translateZ(18px) scale(1) rotate(-10deg);
-}
-
-.pet-candy { display: flex; align-items: center; }
-
-.pet-candy-center {
-  width: 16px;
-  height: 16px;
-  background: radial-gradient(circle at 35% 35%, #ffb6c1, #ff8fab);
-  border-radius: 50%;
-  box-shadow: 0 2px 6px rgba(255, 143, 171, 0.3);
-}
-
-.pet-candy-left, .pet-candy-right {
-  width: 10px;
-  height: 7px;
-  background: #ff8fab;
-}
-
-.pet-candy-left { border-radius: 4px 0 0 4px; transform: rotate(-20deg); }
-.pet-candy-right { border-radius: 0 4px 4px 0; transform: rotate(20deg); }
-
-/* 书本 */
-.pet-prop-book {
-  position: absolute;
-  left: 50%;
-  bottom: -5px;
-  opacity: 0;
-  transform: translateX(-50%) translateZ(28px) scale(0.8);
-  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.guide-pet.is-glasses .pet-prop-book {
-  opacity: 1;
-  transform: translateX(-50%) translateZ(28px) scale(1);
-}
-
-.pet-book {
-  position: relative;
-  width: 46px;
-  height: 32px;
-  transform: rotateX(60deg);
-}
-
-.pet-book-cover {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, #e8a0b0, #d88098);
-  border-radius: 2px 5px 5px 2px;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
-}
-
-.pet-book-pages {
-  position: absolute;
-  left: 3px;
-  top: 2px;
-  right: 2px;
-  bottom: 2px;
-  background: #fff8f0;
-  border-radius: 0 3px 3px 0;
-}
-
-.pet-book-text {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  font: 700 9px "Noto Sans SC Variable", sans-serif;
-  color: #d88098;
-}
+/* 道具 */
+.pet-prop { position: absolute; z-index: 8; display: none; }
+.pet-prop.snack { right: 4px; bottom: 36px; padding: .25rem .4rem; color: #7e4c1f; background: #f5cf77; border-radius: 50%; font-size: .55rem; transform: rotate(-10deg); }
+.pet-prop.cup { right: 2px; bottom: 34px; width: 34px; height: 43px; padding-top: 12px; color: #6d482f; text-align: center; background: #eec9a5; border-radius: 5px 5px 12px 12px; font-size: .48rem; }
+.pet-prop.cup i { position: absolute; left: 16px; top: -15px; width: 3px; height: 20px; background: #d8614d; transform: rotate(8deg); }
 
 /* 睡眠Z */
-.pet-zzz {
-  position: absolute;
-  right: -8px;
-  top: -5px;
-  opacity: 0;
-  transform: translateZ(35px);
-}
+.pet-z { position: absolute; right: 12px; top: 8px; display: none; color: #55706c; font: 800 1.1rem "LXGW WenKai", cursive; }
 
-.guide-pet.is-sleep .pet-zzz { opacity: 1; }
+/* 眼镜道具 */
+.pet-glasses-prop { position: absolute; left: 9px; top: 5px; z-index: 10; width: 64px; height: 61px; opacity: 0; transition: opacity 0.3s ease; pointer-events: none; }
+.glasses-frame { position: absolute; left: 50%; top: 28px; transform: translateX(-50%); width: 52px; height: 18px; border: 2.5px solid #5a3a2a; border-radius: 8px; background: rgba(200,220,255,.1); }
+.glasses-frame::before { content: ''; position: absolute; left: 4px; top: 2px; width: 18px; height: 14px; border: 2px solid #5a3a2a; border-radius: 50%; }
+.glasses-frame::after { content: ''; position: absolute; right: 4px; top: 2px; width: 18px; height: 14px; border: 2px solid #5a3a2a; border-radius: 50%; }
+.guide-pet.is-glasses .pet-glasses-prop { opacity: 1; }
 
-.pet-zzz span {
-  position: absolute;
-  font: 800 15px "LXGW WenKai", cursive;
-  color: #b8a0c8;
-  animation: zzz-float 2s ease-in-out infinite;
-}
-
-.pet-zzz span:nth-child(1) { right: 0; top: 0; animation-delay: 0s; }
-.pet-zzz span:nth-child(2) { right: 10px; top: -10px; font-size: 12px; animation-delay: 0.4s; }
-.pet-zzz span:nth-child(3) { right: 18px; top: -18px; font-size: 9px; animation-delay: 0.8s; }
-
-/* ==================== 动画 ==================== */
-
-@keyframes girl-idle {
-  0%, 100% { transform: translateX(-50%) rotateX(0deg) rotateY(0deg); }
-  25% { transform: translateX(-50%) rotateX(1deg) rotateY(-2deg); }
-  50% { transform: translateX(-50%) rotateX(-1deg) rotateY(1deg); }
-  75% { transform: translateX(-50%) rotateX(1deg) rotateY(-1deg); }
-}
-
-@keyframes cute-blink {
-  0%, 94%, 100% { }
-  96% { .pet-eyelid { height: 100%; } }
-  98% { .pet-eyelid { height: 0%; } }
-}
-
-@keyframes gentle-look {
-  0%, 100% { transform: translate(-50%, -50%); }
-  25% { transform: translate(-40%, -50%); }
-  50% { transform: translate(-50%, -45%); }
-  75% { transform: translate(-60%, -50%); }
-}
-
-@keyframes heart-float {
-  0%, 100% { transform: translateY(0) scale(1); opacity: 0.8; }
-  50% { transform: translateY(-12px) scale(1.15); opacity: 1; }
-}
-
-@keyframes zzz-float {
-  0%, 100% { transform: translateY(0) scale(1); opacity: 0.7; }
-  50% { transform: translateY(-8px) scale(1.1); opacity: 1; }
-}
+/* ==================== 状态样式 ==================== */
 
 /* 挥手 */
-.guide-pet.is-wave .pet-arm.right {
-  animation: girl-wave 1.8s ease-in-out infinite;
-}
-
-@keyframes girl-wave {
-  0%, 100% { transform: translateZ(8px) rotate(-10deg); }
-  20% { transform: translateZ(18px) rotate(-50deg); }
-  40% { transform: translateZ(8px) rotate(-10deg); }
-  60% { transform: translateZ(16px) rotate(-40deg); }
-  80% { transform: translateZ(8px) rotate(-10deg); }
-}
+.guide-pet.is-wave .pet-arm.right { animation: wave-arm 1.5s ease-in-out infinite; }
 
 /* 睡觉 */
-.guide-pet.is-sleep .pet-character {
-  animation: sleepy-sway 3s ease-in-out infinite;
-}
+.guide-pet.is-sleep .pet-character { animation: sleepy 3s ease-in-out infinite; }
+.guide-pet.is-sleep .pet-eye { height: 3px; border-radius: 50%; animation: none; }
+.guide-pet.is-sleep .pet-mouth { width: 6px; height: 3px; }
+.guide-pet.is-sleep .pet-z { display: block; animation: zzz 2s ease-in-out infinite; }
 
-@keyframes sleepy-sway {
-  0%, 100% { transform: translateX(-50%) rotateX(0deg) rotateZ(0deg); }
-  30% { transform: translateX(-50%) rotateX(4deg) rotateZ(-2deg); }
-  60% { transform: translateX(-50%) rotateX(2deg) rotateZ(-1deg); }
-}
-
-.guide-pet.is-sleep .pet-smile {
-  width: 8px;
-  height: 4px;
-  border-radius: 50%;
-}
+/* 吃零食 */
+.guide-pet.is-snack .pet-prop.snack { display: block; }
+.guide-pet.is-snack .pet-character { animation: happy-bounce 1.2s ease-in-out infinite; }
+.guide-pet.is-snack .pet-blush { background: rgba(218,104,91,.5); }
 
 /* 喝奶茶 */
-.guide-pet.is-milktea .pet-arm.right {
-  animation: hold-drink 2s ease-in-out infinite;
-}
-
-@keyframes hold-drink {
-  0%, 100% { transform: translateZ(8px) rotate(-20deg); }
-  50% { transform: translateZ(12px) rotate(-28deg); }
-}
-
-.guide-pet.is-milktea .pet-smile {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border-bottom-width: 3px;
-}
-
-/* 吃糖果 */
-.guide-pet.is-snack .pet-character {
-  animation: happy-hop 1.5s ease-in-out infinite;
-}
-
-@keyframes happy-hop {
-  0%, 100% { transform: translateX(-50%) translateY(0); }
-  30% { transform: translateX(-50%) translateY(-5px); }
-  60% { transform: translateX(-50%) translateY(0); }
-}
-
-.guide-pet.is-snack .pet-smile {
-  width: 16px;
-  height: 10px;
-}
-
-.guide-pet.is-snack .pet-blush {
-  background: radial-gradient(ellipse, rgba(255, 150, 160, 0.5), transparent);
-}
+.guide-pet.is-milktea .pet-prop.cup { display: block; }
+.guide-pet.is-milktea .pet-arm.right { transform: rotate(-25deg); }
+.guide-pet.is-milktea .pet-mouth { width: 8px; height: 8px; border-radius: 50%; }
 
 /* 看书 */
-.guide-pet.is-glasses .pet-character {
-  animation: reading-tilt 4s ease-in-out infinite;
-}
-
-@keyframes reading-tilt {
-  0%, 100% { transform: translateX(-50%) rotateX(0deg); }
-  20% { transform: translateX(-50%) rotateX(8deg); }
-  40% { transform: translateX(-50%) rotateX(5deg); }
-  60% { transform: translateX(-50%) rotateX(10deg); }
-  80% { transform: translateX(-50%) rotateX(6deg); }
-}
+.guide-pet.is-glasses .pet-character { animation: reading-nod 3s ease-in-out infinite; }
 
 /* 思考 */
-.guide-pet.is-thinking .pet-character {
-  animation: think-tilt 2s ease-in-out infinite;
+.guide-pet.is-thinking .pet-character { animation: think-tilt 2s ease-in-out infinite; }
+.guide-pet.is-thinking .pet-eye { animation: none; transform: translateY(-1px); }
+
+/* 说话 */
+.guide-pet.is-talking .pet-mouth { animation: talk-move 0.4s ease-in-out infinite; }
+
+/* 关心 */
+.guide-pet.is-caring .pet-character { animation: caring-pulse 2s ease-in-out infinite; }
+.guide-pet.is-caring .pet-blush { animation: blush-glow 1.5s ease-in-out infinite; }
+
+/* 悬停暂停动画 */
+.guide-pet.hovering .pet-character { animation-play-state: paused; }
+
+/* 点击效果 */
+.guide-pet:active .pet-character { transform: scale(0.96) !important; }
+
+/* 打开对话框 */
+.guide-pet.open .pet-character { animation: none; transform: rotateX(0deg) rotateY(0deg) !important; }
+
+/* ==================== 动画关键帧 ==================== */
+@keyframes pet-idle {
+  0%, 100% { transform: rotateX(0deg) rotateY(0deg); }
+  25% { transform: rotateX(1deg) rotateY(-2deg); }
+  50% { transform: rotateX(-1deg) rotateY(1deg); }
+  75% { transform: rotateX(1deg) rotateY(-1deg); }
+}
+
+@keyframes blink {
+  0%, 96%, 100% { transform: scaleY(1); }
+  98% { transform: scaleY(0.1); }
+}
+
+@keyframes wave-arm {
+  0%, 100% { transform: rotate(-9deg); }
+  25% { transform: rotate(-45deg); }
+  50% { transform: rotate(-9deg); }
+  75% { transform: rotate(-35deg); }
+}
+
+@keyframes sleepy {
+  0%, 100% { transform: rotateX(0deg) rotateZ(0deg); }
+  30% { transform: rotateX(4deg) rotateZ(-2deg); }
+  60% { transform: rotateX(2deg) rotateZ(-1deg); }
+}
+
+@keyframes zzz {
+  0%, 100% { transform: translateY(0); opacity: 0.6; }
+  50% { transform: translateY(-6px); opacity: 1; }
+}
+
+@keyframes happy-bounce {
+  0%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+  60% { transform: translateY(0); }
+}
+
+@keyframes reading-nod {
+  0%, 100% { transform: rotateX(0deg); }
+  30% { transform: rotateX(6deg); }
+  60% { transform: rotateX(3deg); }
 }
 
 @keyframes think-tilt {
-  0%, 100% { transform: translateX(-50%) rotateX(0deg) rotateY(0deg); }
-  30% { transform: translateX(-50%) rotateX(-4deg) rotateY(6deg); }
-  70% { transform: translateX(-50%) rotateX(-2deg) rotateY(4deg); }
+  0%, 100% { transform: rotateX(0deg) rotateY(0deg); }
+  30% { transform: rotateX(-3deg) rotateY(5deg); }
+  70% { transform: rotateX(-2deg) rotateY(3deg); }
 }
 
-.guide-pet.is-thinking .pet-iris {
-  animation: think-gaze 1.5s ease-in-out infinite;
+@keyframes talk-move {
+  0%, 100% { height: 5px; width: 10px; }
+  50% { height: 8px; width: 12px; }
 }
 
-@keyframes think-gaze {
-  0%, 100% { transform: translate(-50%, -60%); }
-  50% { transform: translate(-35%, -60%); }
+@keyframes caring-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
 }
 
-/* 说话 */
-.guide-pet.is-talking .pet-smile {
-  animation: talk-o 0.4s ease-in-out infinite;
-}
-
-@keyframes talk-o {
-  0%, 100% { width: 14px; height: 8px; }
-  50% { width: 12px; height: 12px; border-radius: 50%; }
-}
-
-/* 关心 */
-.guide-pet.is-caring .pet-character {
-  animation: gentle-pulse 2s ease-in-out infinite;
-}
-
-@keyframes gentle-pulse {
-  0%, 100% { transform: translateX(-50%) scale(1); }
-  50% { transform: translateX(-50%) scale(1.04); }
-}
-
-.guide-pet.is-caring .pet-blush {
-  animation: warm-blush 1.5s ease-in-out infinite;
-}
-
-@keyframes warm-blush {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.8; }
-}
-
-/* 悬停 */
-.guide-pet.hovering .pet-character { animation-play-state: paused; }
-
-/* 点击 */
-.guide-pet:active .pet-character {
-  transform: translateX(-50%) scale(0.96) !important;
-  transition: transform 0.1s ease;
-}
-
-/* 打开对话框 */
-.guide-pet.open .pet-character {
-  animation: none;
-  transform: translateX(-50%) rotateX(0deg) rotateY(0deg) !important;
+@keyframes blush-glow {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
 }
 
 /* 恢复按钮 */
-.guide-restore {
-  position: fixed;
-  right: 20px;
-  bottom: 20px;
-  z-index: 110;
-  width: 48px;
-  height: 48px;
-  display: grid;
-  place-items: center;
-  color: #ff8fab;
-  background: rgba(255, 248, 250, 0.95);
-  border: 1px solid #f0d4dc;
-  border-radius: 50%;
-  box-shadow: 0 6px 20px rgba(200, 150, 170, 0.25);
-  cursor: pointer;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(8px);
-}
-
-.guide-restore:hover {
-  transform: scale(1.1);
-  box-shadow: 0 8px 24px rgba(200, 150, 170, 0.35);
-}
+.guide-restore { position: fixed; right: 20px; bottom: 20px; z-index: 110; width: 44px; height: 44px; display: grid; place-items: center; color: #397f72; background: rgba(255,254,248,.94); border: 1px solid #d7dfd8; border-radius: 50%; box-shadow: 0 6px 15px rgba(35,66,60,.15); cursor: pointer; transition: all .2s; }
+.guide-restore:hover { transform: scale(1.08); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 
 @media (max-width: 1120px) {

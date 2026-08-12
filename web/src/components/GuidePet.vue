@@ -113,8 +113,8 @@ function handleMouseMove(event: MouseEvent) {
   const centerY = rect.top + rect.height / 2
   const deltaX = (event.clientX - centerX) / (window.innerWidth / 2)
   const deltaY = (event.clientY - centerY) / (window.innerHeight / 2)
-  rotateY.value = Math.max(-15, Math.min(15, deltaX * 15))
-  rotateX.value = Math.max(-10, Math.min(10, -deltaY * 10))
+  rotateY.value = Math.max(-12, Math.min(12, deltaX * 12))
+  rotateX.value = Math.max(-8, Math.min(8, -deltaY * 8))
   isHovering.value = true
 }
 
@@ -142,18 +142,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <button v-if="minimized" class="guide-restore" type="button" aria-label="显示暖心引导员" @click="restore">
-    <PhSparkle :size="22" weight="fill" />
-  </button>
+  <button v-if="minimized" class="guide-restore" type="button" aria-label="显示暖心引导员" @click="restore"><PhSparkle :size="22" weight="fill" /></button>
   <div v-else ref="pet" class="guide-pet" :class="['is-' + state, { open, hovering: isHovering }]" :style="{ transform: 'translate3d(' + position.x + 'px, ' + position.y + 'px, 0)' }" @pointerdown="beginDrag" @mouseleave="handleMouseLeave">
     <section v-if="open" class="guide-dialog" aria-label="与暖心引导员对话" @pointerdown.stop>
-      <header>
-        <div>
-          <span class="guide-online"><i :class="{ offline: providerOnline === false }"></i>小齐 · {{ stateCopy[state] }}</span>
-          <small>{{ providerOnline === false ? '当前为本地陪伴模式' : '多轮对话仅在本会话保留' }}</small>
-        </div>
-        <button type="button" aria-label="最小化引导员" @click="minimize"><PhMinus :size="18" /></button>
-      </header>
+      <header><div><span class="guide-online"><i :class="{ offline: providerOnline === false }"></i>小齐 · {{ stateCopy[state] }}</span><small>{{ providerOnline === false ? '当前为本地陪伴模式' : '多轮对话仅在本会话保留' }}</small></div><button type="button" aria-label="最小化引导员" @click="minimize"><PhMinus :size="18" /></button></header>
       <div class="guide-messages" aria-live="polite">
         <div v-for="(item, index) in messages" :key="index" :class="['guide-message', item.role]">
           <span v-if="item.role === 'assistant'">SDNU</span>
@@ -164,132 +156,29 @@ onBeforeUnmount(() => {
         <input v-model="input" maxlength="4000" placeholder="想聊什么都可以…" aria-label="发送给暖心引导员" @keydown="onInputKeydown">
         <button type="submit" :disabled="loading || !input.trim()" aria-label="发送消息"><PhPaperPlaneTilt :size="19" weight="fill" /></button>
       </form>
-      <footer>
-        <button type="button" @click="enterWellbeing">打开暖心空间 <PhArrowUp :size="14" /></button>
-        <span>AI 陪伴不能替代专业或紧急支持</span>
-      </footer>
+      <footer><button type="button" @click="enterWellbeing">打开暖心空间 <PhArrowUp :size="14" /></button><span>AI 陪伴不能替代专业或紧急支持</span></footer>
     </section>
 
     <div class="pet-stage" role="button" :aria-label="'暖心引导员小齐，' + stateCopy[state] + '，可拖动位置或点击对话'">
       <span class="pet-status">{{ stateCopy[state] }}</span>
-      
-      <!-- 3D角色容器 -->
-      <div class="pet-3d-scene">
-        <div class="pet-character" :style="{ transform: 'rotateX(' + rotateX + 'deg) rotateY(' + rotateY + 'deg)' }">
-          <!-- 身体主体 -->
-          <div class="pet-body">
-            <!-- 头发后层 -->
-            <div class="pet-hair-back"></div>
-            
-            <!-- 腿部 -->
-            <div class="pet-legs">
-              <div class="pet-leg left"></div>
-              <div class="pet-leg right"></div>
-            </div>
-            
-            <!-- 裙子 -->
-            <div class="pet-skirt"></div>
-            
-            <!-- 躯干 -->
-            <div class="pet-torso">
-              <div class="pet-collar"></div>
-              <div class="pet-badge">SDNU</div>
-            </div>
-            
-            <!-- 手臂 -->
-            <div class="pet-arm left"></div>
-            <div class="pet-arm right"></div>
-            
-            <!-- 头部 -->
-            <div class="pet-head">
-              <div class="pet-hair-front"></div>
-              <div class="pet-hair-side left"></div>
-              <div class="pet-hair-side right"></div>
-              <div class="pet-bangs"></div>
-              <div class="pet-ear left"></div>
-              <div class="pet-ear right"></div>
-              <div class="pet-face">
-                <!-- 可爱的大眼睛 -->
-                <div class="pet-eye left">
-                  <div class="pet-eye-white">
-                    <div class="pet-iris">
-                      <div class="pet-pupil"></div>
-                      <div class="pet-sparkle big"></div>
-                      <div class="pet-sparkle small"></div>
-                    </div>
-                  </div>
-                  <div class="pet-eyelid"></div>
-                </div>
-                <div class="pet-eye right">
-                  <div class="pet-eye-white">
-                    <div class="pet-iris">
-                      <div class="pet-pupil"></div>
-                      <div class="pet-sparkle big"></div>
-                      <div class="pet-sparkle small"></div>
-                    </div>
-                  </div>
-                  <div class="pet-eyelid"></div>
-                </div>
-                <!-- 腮红 -->
-                <div class="pet-blush left"></div>
-                <div class="pet-blush right"></div>
-                <!-- 可爱小嘴 -->
-                <div class="pet-mouth">
-                  <div class="pet-smile"></div>
-                </div>
-              </div>
-              <!-- 眼镜 -->
-              <div class="pet-glasses">
-                <div class="pet-glasses-frame left"></div>
-                <div class="pet-glasses-frame right"></div>
-                <div class="pet-glasses-bridge"></div>
-              </div>
-              <!-- 发饰 -->
-              <div class="pet-hairbow"></div>
-            </div>
-          </div>
-          
-          <!-- 道具层 -->
-          <div class="pet-props">
-            <div class="pet-prop-milktea">
-              <div class="pet-cup">
-                <div class="pet-cup-straw"></div>
-                <div class="pet-cup-body"></div>
-                <div class="pet-cup-lid"></div>
-              </div>
-            </div>
-            <div class="pet-prop-candy">
-              <div class="pet-candy">
-                <div class="pet-candy-left"></div>
-                <div class="pet-candy-center"></div>
-                <div class="pet-candy-right"></div>
-              </div>
-            </div>
-            <div class="pet-prop-book">
-              <div class="pet-book">
-                <div class="pet-book-cover"></div>
-                <div class="pet-book-pages"></div>
-                <div class="pet-book-text">ABC</div>
-              </div>
-            </div>
-          </div>
-          
-          <!-- 睡眠Z -->
-          <div class="pet-zzz">
-            <span>Z</span><span>z</span><span>z</span>
-          </div>
-          
-          <!-- 爱心效果 -->
-          <div class="pet-hearts">
-            <span class="pet-heart">&#10084;</span>
-            <span class="pet-heart">&#10084;</span>
-            <span class="pet-heart">&#10084;</span>
-          </div>
+      <div class="pet-z">Z<sup>z</sup></div>
+      <div class="pet-prop snack">小饼干</div>
+      <div class="pet-prop cup"><i></i><b>奶茶</b></div>
+      <div class="pet-shadow"></div>
+      <div class="pet-character" :style="{ transform: 'rotateX(' + rotateX + 'deg) rotateY(' + rotateY + 'deg)' }">
+        <div class="pet-hair back"></div>
+        <div class="pet-leg left"><i></i></div><div class="pet-leg right"><i></i></div>
+        <div class="pet-torso"><span class="pet-scarf"></span><b>SDNU</b></div>
+        <div class="pet-arm left"></div><div class="pet-arm right"></div>
+        <div class="pet-head">
+          <div class="pet-hair front"></div><span class="pet-ear left"></span><span class="pet-ear right"></span>
+          <div class="pet-face"><i class="pet-eye left"></i><i class="pet-eye right"></i><span class="pet-blush left"></span><span class="pet-blush right"></span><b class="pet-mouth"></b></div>
+        </div>
+        <!-- 眼镜道具 -->
+        <div class="pet-glasses-prop">
+          <div class="glasses-frame"></div>
         </div>
       </div>
-      
-      <!-- 阴影 -->
-      <div class="pet-shadow"></div>
     </div>
   </div>
 </template>
