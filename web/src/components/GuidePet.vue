@@ -148,7 +148,7 @@ onBeforeUnmount(() => {
       <header><div><span class="guide-online"><i :class="{ offline: providerOnline === false }"></i>小齐 · {{ stateCopy[state] }}</span><small>{{ providerOnline === false ? '当前为本地陪伴模式' : '多轮对话仅在本会话保留' }}</small></div><button type="button" aria-label="最小化引导员" @click="minimize"><PhMinus :size="18" /></button></header>
       <div class="guide-messages" aria-live="polite">
         <div v-for="(item, index) in messages" :key="index" :class="['guide-message', item.role]">
-          <span v-if="item.role === 'assistant'">SDNU</span>
+          <span v-if="item.role === 'assistant'">齐</span>
           <p>{{ item.content || '正在组织语言…' }}</p>
         </div>
       </div>
