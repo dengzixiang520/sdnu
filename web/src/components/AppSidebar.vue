@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 import {
@@ -27,8 +27,8 @@ function active(path: string) {
   <button class="mobile-menu" type="button" aria-label="打开导航" @click="mobileOpen = true"><PhList :size="22" /></button>
   <aside class="sidebar" :class="{ expanded, 'mobile-open': mobileOpen }" @mouseenter="expanded = true" @mouseleave="expanded = false">
     <div class="sidebar-brand">
-      <span class="brand-seal">齐</span>
-      <div class="brand-copy"><strong>智汇齐鲁</strong><small>全域同频</small></div>
+      <span class="brand-seal">SDNU</span>
+      <div class="brand-copy"><strong>山东师范大学</strong><small>全域同频</small></div>
       <button class="mobile-close" type="button" aria-label="关闭导航" @click="mobileOpen = false"><PhX :size="20" /></button>
     </div>
     <nav class="sidebar-nav" aria-label="主导航">
