@@ -19,6 +19,7 @@ const providerOnline = ref<boolean | null>(null)
 const loadedHistory = ref(false)
 const rotateX = ref(0)
 const rotateY = ref(0)
+const isHovering = ref(false)
 let pointerId: number | null = null
 let origin = { x: 0, y: 0, left: 0, top: 0 }
 let dragged = false
@@ -118,15 +119,16 @@ function handleMouseMove(event: MouseEvent) {
   const deltaX = (mouseX - centerX) / (window.innerWidth / 2)
   const deltaY = (mouseY - centerY) / (window.innerHeight / 2)
   
-  // 限制旋转角度在±15度范围内
-  rotateY.value = Math.max(-15, Math.min(15, deltaX * 15))
-  rotateX.value = Math.max(-10, Math.min(10, -deltaY * 10))
+  // 限制旋转角度在±25度范围内
+  rotateY.value = Math.max(-25, Math.min(25, deltaX * 25))
+  rotateX.value = Math.max(-15, Math.min(15, -deltaY * 15))
+  isHovering.value = true
 }
 
 function handleMouseLeave() {
-  // 鼠标离开时平滑回到初始位置
   rotateX.value = 0
   rotateY.value = 0
+  isHovering.value = false
 }
 
 watch(() => route.fullPath, () => { open.value = false; scheduleIdle() })
@@ -150,7 +152,7 @@ onBeforeUnmount(() => {
   <button v-if="minimized" class="guide-restore" type="button" aria-label="显示暖心引导员" @click="restore">
     <PhSparkle :size="22" weight="fill" />
   </button>
-  <div v-else ref="pet" class="guide-pet" :class="['is-' + state, { open }]" :style="{ transform: 'translate3d(' + position.x + 'px, ' + position.y + 'px, 0)' }" @pointerdown="beginDrag" @mouseleave="handleMouseLeave">
+  <div v-else ref="pet" class="guide-pet" :class="['is-' + state, { open, hovering: isHovering }]" :style="{ transform: 'translate3d(' + position.x + 'px, ' + position.y + 'px, 0)' }" @pointerdown="beginDrag" @mouseleave="handleMouseLeave">
     <section v-if="open" class="guide-dialog" aria-label="与暖心引导员对话" @pointerdown.stop>
       <header>
         <div>
@@ -161,7 +163,7 @@ onBeforeUnmount(() => {
       </header>
       <div class="guide-messages" aria-live="polite">
         <div v-for="(item, index) in messages" :key="index" :class="['guide-message', item.role]">
-          <span v-if="item.role === 'assistant'">齐</span>
+          <span v-if="item.role === 'assistant'">SDNU</span>
           <p>{{ item.content || '正在组织语言…' }}</p>
         </div>
       </div>
@@ -175,18 +177,18 @@ onBeforeUnmount(() => {
       </footer>
     </section>
 
-    <div class="pet-stage" role="button" :aria-label="'暖心引导员小齐，' + stateCopy[state] + '，可拖动位置或点击对话'" :style="{ perspective: '800px', perspectiveOrigin: '50% 50%' }">
+    <div class="pet-stage" role="button" :aria-label="'暖心引导员小齐，' + stateCopy[state] + '，可拖动位置或点击对话'">
       <span class="pet-status">{{ stateCopy[state] }}</span>
       <div class="pet-z">Z<sup>z</sup></div>
       <div class="pet-prop snack">小饼干</div>
       <div class="pet-prop cup"><i></i><b>奶茶</b></div>
       <div class="pet-shadow"></div>
-      <div class="pet-character" :style="{ transform: 'rotateX(' + rotateX + 'deg) rotateY(' + rotateY + 'deg)', transformStyle: 'preserve-3d' }">
+      <div class="pet-character" :style="{ transform: 'rotateX(' + rotateX + 'deg) rotateY(' + rotateY + 'deg)' }">
         <div class="pet-3d-body">
           <div class="pet-hair back"></div>
           <div class="pet-leg left"><i></i></div>
           <div class="pet-leg right"><i></i></div>
-          <div class="pet-torso"><span class="pet-scarf"></span><b>齐</b></div>
+          <div class="pet-torso"><span class="pet-scarf"></span><b>SDNU</b></div>
           <div class="pet-arm left"></div>
           <div class="pet-arm right"></div>
           <div class="pet-head">
