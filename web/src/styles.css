@@ -680,3 +680,50 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
     align-items: flex-start;
   }
 }
+/* ==================== 时间和日期显示样式 ==================== */
+.date-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 24px;
+  background: linear-gradient(135deg, #173f43, #2d6659);
+  border-radius: 16px;
+  color: white;
+  min-width: 140px;
+}
+
+.time-display {
+  font-size: 32px;
+  font-weight: 700;
+  font-family: 'Noto Sans SC Variable', monospace;
+  letter-spacing: 2px;
+  color: #e8f4f0;
+}
+
+.date-info {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.date-info strong {
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 1;
+  color: white;
+}
+
+.date-info span {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #a8d8cf;
+  text-transform: uppercase;
+}
+
+.date-chinese {
+  font-size: 14px;
+  color: #a8d8cf;
+  margin-top: 4px;
+}
