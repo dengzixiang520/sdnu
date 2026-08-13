@@ -1,0 +1,168 @@
+﻿"""File upload and AI-powered timetable parsing API routes."""
+
+import json
+from typing import Any
+
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
+from pydantic import BaseModel
+
+router = APIRouter(prefix="/api/v1/timetable", tags=["timetable"])
+
+
+class TimetableEvent(BaseModel):
+    """Parsed timetable event."""
+    title: str
+    starts_at: str
+    ends_at: str
+    location: str = ""
+    day_of_week: str = ""
+
+
+class ParseResponse(BaseModel):
+    """Response from timetable parsing."""
+    success: bool
+    message: str
+    events: list[TimetableEvent] = []
+
+
+async def parse_with_deepseek(content: str, provider: Any) -> list[dict[str, str]]:
+    """Use DeepSeek to parse timetable content."""
+    from zhihui_qilu.ai.provider import ChatMessage
+    
+    system_prompt = """你是一个课表解析助手。请从用户提供的文本中提取课程信息，并以JSON数组格式返回。
+
+每个课程对象包含以下字段：
+- title: 课程名称
+- starts_at: 开始时间（ISO格式，如2026-09-01T08:00:00）
+- ends_at: 结束时间（ISO格式，如2026-09-01T09:40:00）
+- location: 上课地点
+- day_of_week: 星期几（周一到周日）
+
+如果文本中没有明确的日期，请使用2026年9月的第一周作为示例日期。
+只返回JSON数组，不要返回其他内容。"""
+
+    messages = [
+        ChatMessage(role="system", content=system_prompt),
+        ChatMessage(role="user", content=f"请解析以下课表内容：\n\n{content}")
+    ]
+    
+    try:
+        response = await provider.complete(messages, temperature=0.3)
+        # 尝试解析JSON
+        # 处理可能的markdown代码块
+        response = response.strip()
+        if response.startswith("```json"):
+            response = response[7:]
+        if response.startswith("```"):
+            response = response[3:]
+        if response.endswith("```"):
+            response = response[:-3]
+        response = response.strip()
+        
+        events = json.loads(response)
+        return events
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI解析失败: {str(e)}"
+        )
+
+
+@router.post("/upload")
+async def upload_timetable(
+    request: Request,
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    """Upload and parse a timetable file using AI."""
+    # 检查文件类型
+    allowed_types = [
+        "text/plain",
+        "text/csv",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/calendar",
+        "application/octet-stream",
+    ]
+    
+    # 读取文件内容
+    try:
+        content_bytes = await file.read()
+        
+        # 尝试解码为文本
+        try:
+            content = content_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                content = content_bytes.decode("gbk")
+            except UnicodeDecodeError:
+                content = content_bytes.decode("gb2312")
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"文件读取失败: {str(e)}"
+        )
+    
+    # 获取AI provider
+    container = request.app.state.container
+    provider = container.ai_provider
+    
+    if not provider.available:
+        # 使用离线模式，返回示例数据
+        return {
+            "success": True,
+            "message": "当前为离线模式，返回示例课表数据。请配置API Key以使用AI解析。",
+            "events": [
+                {"title": "高等数学", "starts_at": "2026-09-01T08:00:00", "ends_at": "2026-09-01T09:40:00", "location": "A101", "day_of_week": "周一"},
+                {"title": "数据结构", "starts_at": "2026-09-01T14:00:00", "ends_at": "2026-09-01T15:40:00", "location": "B202", "day_of_week": "周一"},
+                {"title": "英语听说", "starts_at": "2026-09-02T10:00:00", "ends_at": "2026-09-02T11:40:00", "location": "C305", "day_of_week": "周二"},
+                {"title": "Python程序设计", "starts_at": "2026-09-03T14:00:00", "ends_at": "2026-09-03T15:40:00", "location": "D401", "day_of_week": "周三"},
+            ]
+        }
+    
+    # 使用DeepSeek解析
+    events = await parse_with_deepseek(content, provider)
+    
+    return {
+        "success": True,
+        "message": f"成功解析 {len(events)} 个课程",
+        "events": events
+    }
+
+
+@router.post("/parse-text")
+async def parse_text_timetable(
+    request: Request,
+    body: dict[str, str],
+) -> dict[str, Any]:
+    """Parse timetable from text using AI."""
+    content = body.get("content", "")
+    
+    if not content.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="内容不能为空"
+        )
+    
+    # 获取AI provider
+    container = request.app.state.container
+    provider = container.ai_provider
+    
+    if not provider.available:
+        # 使用离线模式
+        return {
+            "success": True,
+            "message": "当前为离线模式，返回示例课表数据。",
+            "events": [
+                {"title": "高等数学", "starts_at": "2026-09-01T08:00:00", "ends_at": "2026-09-01T09:40:00", "location": "A101", "day_of_week": "周一"},
+                {"title": "数据结构", "starts_at": "2026-09-01T14:00:00", "ends_at": "2026-09-01T15:40:00", "location": "B202", "day_of_week": "周一"},
+            ]
+        }
+    
+    # 使用DeepSeek解析
+    events = await parse_with_deepseek(content, provider)
+    
+    return {
+        "success": True,
+        "message": f"成功解析 {len(events)} 个课程",
+        "events": events
+    }

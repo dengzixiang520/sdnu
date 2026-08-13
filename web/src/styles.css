@@ -806,3 +806,137 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   color: #1a6b5a;
   letter-spacing: 2px;
 }
+/* ==================== 文件上传样式 ==================== */
+.parse-mode-switch {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.parse-mode-switch button {
+  flex: 1;
+  padding: 10px 16px;
+  background: #f5f4eb;
+  border: 1px solid #d8ded4;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #667572;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.parse-mode-switch button.active {
+  background: #397f72;
+  border-color: #397f72;
+  color: white;
+}
+
+.parse-mode-switch button:hover:not(.active) {
+  background: #eef1ea;
+}
+
+.file-upload-section {
+  margin-bottom: 16px;
+}
+
+.upload-area {
+  border: 2px dashed #d8ded4;
+  border-radius: 12px;
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: #fafaf8;
+}
+
+.upload-area:hover,
+.upload-area.dragover {
+  border-color: #397f72;
+  background: #f0f7f4;
+}
+
+.upload-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.upload-text {
+  font-size: 16px;
+  color: #172b2a;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+}
+
+.upload-hint {
+  font-size: 13px;
+  color: #667572;
+  margin: 0;
+}
+
+.event-list {
+  margin-top: 16px;
+}
+
+.event-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  background: #fffef8;
+  border: 1px solid #eef1ea;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  transition: all 0.2s;
+}
+
+.event-row:hover {
+  box-shadow: 0 4px 12px rgba(25, 58, 55, 0.08);
+  transform: translateY(-1px);
+}
+
+.event-time {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 70px;
+}
+
+.event-time time {
+  font-size: 18px;
+  font-weight: 700;
+  color: #172b2a;
+}
+
+.event-day {
+  font-size: 12px;
+  color: #667572;
+  margin-top: 2px;
+}
+
+.event-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.event-info b {
+  font-size: 15px;
+  color: #172b2a;
+}
+
+.event-info span {
+  font-size: 13px;
+  color: #667572;
+}
+
+.ink-button.primary {
+  background: #397f72;
+  color: white;
+  border-color: #397f72;
+}
+
+.ink-button.primary:hover {
+  background: #2d6659;
+}
