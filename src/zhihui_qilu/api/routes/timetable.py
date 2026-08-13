@@ -25,38 +25,77 @@ def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
     """Parse PDF timetable by directly reading table structure."""
     import pdfplumber
     
-    # 节次时间映射（连续两节课）
+    # 节次时间映射（支持单节和双节）
     slot_times = {
-        '1': ('08:20', '09:55'),   # 1-2节
-        '3': ('10:10', '11:45'),   # 3-4节
-        '5': ('14:00', '15:35'),   # 5-6节
-        '7': ('15:50', '17:25'),   # 7-8节
-        '9': ('19:00', '20:35')    # 9-10节
+        '1': ('08:20', '09:05'),    # 第1节
+        '2': ('09:10', '09:55'),    # 第2节
+        '3': ('10:10', '10:55'),    # 第3节
+        '4': ('11:00', '11:45'),    # 第4节
+        '5': ('14:00', '14:45'),    # 第5节
+        '6': ('14:50', '15:35'),    # 第6节
+        '7': ('15:50', '16:35'),    # 第7节
+        '8': ('16:40', '17:25'),    # 第8节
+        '9': ('19:00', '19:45'),    # 第9节
+        '10': ('19:50', '20:35')    # 第10节
     }
     
-    # 星期映射（列索引 -> 星期几）
+    # 连续两节课的时间映射
+    double_slot_times = {
+        '1': ('08:20', '09:55'),    # 第1-2节
+        '3': ('10:10', '11:45'),    # 第3-4节
+        '5': ('14:00', '15:35'),    # 第5-6节
+        '7': ('15:50', '17:25'),    # 第7-8节
+        '9': ('19:00', '20:35')     # 第9-10节
+    }
+    
+    # 星期映射
     day_map = {
         2: '周一', 3: '周二', 4: '周三', 5: '周四', 6: '周五', 7: '周六', 8: '周日'
     }
     
     events = []
-    seen = set()  # 去重
+    seen = set()
     
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         for page in pdf.pages:
             tables = page.extract_tables()
             
             for table in tables:
-                for row in table:
+                for row_idx, row in enumerate(table):
                     if not row or len(row) < 3:
                         continue
                     
-                    # 获取节次信息（只处理1、3、5、7、9节）
                     slot = str(row[1]).strip() if row[1] else ''
-                    if slot not in slot_times:
-                        continue
                     
-                    start_time, end_time = slot_times[slot]
+                    # 判断是单节还是双节课程
+                    # 如果当前行有课程，检查下一行是否也有课程
+                    is_double = False
+                    if slot in ['1', '3', '5', '7', '9']:
+                        # 检查下一行（偶数节）是否有相同课程
+                        if row_idx + 1 < len(table):
+                            next_row = table[row_idx + 1]
+                            if next_row and len(next_row) > 2:
+                                next_slot = str(next_row[1]).strip() if next_row[1] else ''
+                                # 如果下一行是对应的偶数节
+                                if next_slot == str(int(slot) + 1):
+                                    # 比较是否有相同课程
+                                    for col_idx in range(2, min(len(row), 9)):
+                                        cell1 = row[col_idx] if col_idx < len(row) else None
+                                        cell2 = next_row[col_idx] if col_idx < len(next_row) else None
+                                        if cell1 and cell2:
+                                            title1 = str(cell1).split('★')[0].strip()[:10] if cell1 else ''
+                                            title2 = str(cell2).split('★')[0].strip()[:10] if cell2 else ''
+                                            if title1 and title2 and title1 == title2:
+                                                is_double = True
+                                                break
+                    
+                    # 确定时间
+                    if slot in double_slot_times and is_double:
+                        start_time, end_time = double_slot_times[slot]
+                    elif slot in slot_times:
+                        start_time, end_time = slot_times[slot]
+                    else:
+                        continue
                     
                     # 遍历星期列
                     for col_idx in range(2, min(len(row), 9)):
@@ -66,7 +105,7 @@ def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
                         
                         cell_text = str(cell)
                         
-                        # 提取课程名称（★前面的文字）
+                        # 提取课程名称
                         title = ''
                         if '★' in cell_text:
                             title = cell_text.split('★')[0].strip()
@@ -74,21 +113,18 @@ def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
                             lines = cell_text.split('\n')
                             title = lines[0].strip()
                         
-                        # 清理课程名称
                         title = re.sub(r'\s+', ' ', title).strip()
                         if not title or len(title) < 2:
                             continue
                         
-                        # 提取教师（教师:后面的内容）
+                        # 提取教师
                         teacher = ''
                         if '教师:' in cell_text:
                             teacher_part = cell_text.split('教师:')[1]
-                            # 取第一个/或\n之前的内容
                             teacher = re.split(r'[/\n]', teacher_part)[0].strip()
-                            # 清理教学班等信息
                             teacher = re.sub(r'教学班.*', '', teacher).strip()
                         
-                        # 提取地点（场地:后面的内容）
+                        # 提取地点
                         location = ''
                         if '场地:' in cell_text:
                             location_part = cell_text.split('场地:')[1]
@@ -97,7 +133,7 @@ def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
                         day = day_map.get(col_idx, '周一')
                         
                         # 去重
-                        key = f"{day}_{title}"
+                        key = f"{day}_{title}_{start_time}"
                         if key in seen:
                             continue
                         seen.add(key)
@@ -160,19 +196,25 @@ async def parse_with_deepseek(content: str, provider: Any) -> list[dict[str, str
     
     system_prompt = """你是一个课表解析助手。请从用户提供的课表数据中提取课程信息。
 
-【节次时间对应】（每节课是连续的两小节）
+【节次时间对应】
+单节课程：
+- 第1节：08:20-09:05
+- 第2节：09:10-09:55
+- 第3节：10:10-10:55
+- 第4节：11:00-11:45
+- 第5节：14:00-14:45
+- 第6节：14:50-15:35
+- 第7节：15:50-16:35
+- 第8节：16:40-17:25
+- 第9节：19:00-19:45
+- 第10节：19:50-20:35
+
+连续两节课：
 - 第1-2节：08:20-09:55
 - 第3-4节：10:10-11:45
 - 第5-6节：14:00-15:35
 - 第7-8节：15:50-17:25
 - 第9-10节：19:00-20:35
-
-【提取规则】
-1. 课程名称：提取★前面的文字
-2. 星期几：根据课程在表格中的列位置确定
-3. 地点：提取"场地:"后面的内容
-4. 教师：提取"教师:"后面的内容
-5. 日期：使用2026年9月第一周
 
 只返回JSON数组格式。"""
 
