@@ -8,27 +8,21 @@ const greeting = ref('需要聊聊、整理日程或准备复试，都可以从�
 const loading = ref(false)
 const error = ref('')
 
-// 当前时间
 const now = ref(new Date())
 let timer: number | undefined
 
-// 星期几
 const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 const weekDaysEn = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
-
-// 月份
 const months = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
 const monthsEn = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
 
-// 格式化时间
 function formatTime(date: Date): string {
   const hours = date.getHours().toString().padStart(2, '0')
   const minutes = date.getMinutes().toString().padStart(2, '0')
   return `${hours}:${minutes}`
 }
 
-// 格式化日期
-function formatDate(date: Date): { day: string; month: string; monthEn: string; weekDay: string; weekDayEn: string; year: string } {
+function formatDate(date: Date) {
   return {
     day: date.getDate().toString(),
     month: months[date.getMonth()],
@@ -39,7 +33,6 @@ function formatDate(date: Date): { day: string; month: string; monthEn: string; 
   }
 }
 
-// 问候语
 function getGreeting(date: Date): string {
   const hour = date.getHours()
   if (hour < 6) return '夜深了，注意休息'
@@ -71,36 +64,32 @@ async function wakeGuide() {
 }
 
 onMounted(() => {
-  timer = window.setInterval(() => {
-    now.value = new Date()
-  }, 1000)
+  timer = window.setInterval(() => { now.value = new Date() }, 1000)
 })
 
 onBeforeUnmount(() => {
-  if (timer) {
-    clearInterval(timer)
-  }
+  if (timer) clearInterval(timer)
 })
 </script>
 
 <template>
   <section class="dashboard-page">
     <header class="dashboard-heading entrance entrance-top">
-      <!-- 主要位置：时间日期 -->
-      <div class="date-block-main">
+      <!-- 主要位置：问候语 -->
+      <div class="greeting-main">
+        <p class="section-kicker">{{ formatDate(now).year }} / SDNU</p>
+        <h1>{{ getGreeting(now) }}，<br />今天要处理什么？</h1>
+        <p class="greeting-desc">选择一个具体任务，系统会调用对应 Skill。没有虚构数据，也不会自动执行高风险操作。</p>
+      </div>
+      
+      <!-- 次要位置：时间日期 -->
+      <div class="date-block-side">
         <div class="time-display">{{ formatTime(now) }}</div>
         <div class="date-info">
           <strong>{{ formatDate(now).day }}</strong>
           <span>{{ formatDate(now).monthEn }}<br />{{ formatDate(now).weekDayEn }}</span>
         </div>
         <div class="date-chinese">{{ formatDate(now).month }} {{ formatDate(now).weekDay }}</div>
-      </div>
-      
-      <!-- 次要位置：问候语 -->
-      <div class="greeting-section">
-        <p class="section-kicker">{{ formatDate(now).year }} / SDNU</p>
-        <h1>{{ getGreeting(now) }}，今天要处理什么？</h1>
-        <p>选择一个具体任务，系统会调用对应 Skill。没有虚构数据，也不会自动执行高风险操作。</p>
       </div>
     </header>
 
