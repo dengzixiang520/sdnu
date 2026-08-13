@@ -71,7 +71,6 @@ async function wakeGuide() {
 }
 
 onMounted(() => {
-  // 每秒更新时间
   timer = window.setInterval(() => {
     now.value = new Date()
   }, 1000)
@@ -87,18 +86,21 @@ onBeforeUnmount(() => {
 <template>
   <section class="dashboard-page">
     <header class="dashboard-heading entrance entrance-top">
-      <div>
-        <p class="section-kicker">{{ formatDate(now).year }} / SDNU</p>
-        <h1>{{ getGreeting(now) }}，今天要处理什么？</h1>
-        <p>选择一个具体任务，系统会调用对应 Skill。没有虚构数据，也不会自动执行高风险操作。</p>
-      </div>
-      <div class="date-block">
+      <!-- 主要位置：时间日期 -->
+      <div class="date-block-main">
         <div class="time-display">{{ formatTime(now) }}</div>
         <div class="date-info">
           <strong>{{ formatDate(now).day }}</strong>
           <span>{{ formatDate(now).monthEn }}<br />{{ formatDate(now).weekDayEn }}</span>
         </div>
         <div class="date-chinese">{{ formatDate(now).month }} {{ formatDate(now).weekDay }}</div>
+      </div>
+      
+      <!-- 次要位置：问候语 -->
+      <div class="greeting-section">
+        <p class="section-kicker">{{ formatDate(now).year }} / SDNU</p>
+        <h1>{{ getGreeting(now) }}，今天要处理什么？</h1>
+        <p>选择一个具体任务，系统会调用对应 Skill。没有虚构数据，也不会自动执行高风险操作。</p>
       </div>
     </header>
 
