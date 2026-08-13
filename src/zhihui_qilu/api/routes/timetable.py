@@ -64,31 +64,36 @@ async def parse_with_deepseek(content: str, provider: Any) -> list[dict[str, str
     
     system_prompt = """你是一个课表解析助手。请从用户提供的文本中提取课程信息。
 
-请严格按照以下JSON格式返回，每个字段都不能为空字符串：
+【重要规则】
+1. title字段必须是具体的课程名称（如"高等数学"、"英语听说"、"数据结构"），绝对不能是"课程名称"、"课程1"这样的占位符
+2. 如果文本中包含"高等数学"、"英语"、"数据结构"等课程名，必须原样提取
+3. 如果实在无法识别课程名，使用"未知课程"
+4. teacher字段提取教师姓名，如果无法识别则留空字符串
+5. location字段提取教室/地点信息
+6. day_of_week必须是：周一、周二、周三、周四、周五、周六、周日
+7. 如果没有明确日期，使用2026年9月第一周
+
+请返回JSON数组格式，示例：
 ```json
 [
   {
-    "title": "课程名称",
-    "starts_at": "2026-09-01T08:00:00",
-    "ends_at": "2026-09-01T09:40:00",
-    "location": "教室地点",
+    "title": "高等数学",
+    "starts_at": "2026-09-01T08:20:00",
+    "ends_at": "2026-09-01T09:05:00",
+    "location": "A101",
     "day_of_week": "周一",
-    "teacher": "教师姓名"
+    "teacher": "张教授"
   }
 ]
 ```
 
-重要规则：
-1. title（课程名称）必须是具体的课程名，如"高等数学"、"英语听说"，不能为空
-2. 如果文本中没有明确日期，使用2026年9月第一周的日期
-3. day_of_week必须是：周一、周二、周三、周四、周五、周六、周日
-4. 只返回JSON数组，不要返回其他任何文字"""
+只返回JSON数组，不要返回其他任何文字。"""
 
-    user_message = f"""请解析以下课表内容，提取每门课程的名称、时间、地点和教师信息：
+    user_message = f"""请解析以下课表内容，提取每门课程的真实名称、时间、地点和教师：
 
 {content}
 
-请返回标准JSON数组格式。"""
+注意：title字段必须是真实的课程名称，不能是"课程名称"或"课程1"这样的占位符！"""
 
     messages = [
         ChatMessage(role="system", content=system_prompt),
@@ -109,14 +114,25 @@ async def parse_with_deepseek(content: str, provider: Any) -> list[dict[str, str
         
         events = json.loads(response)
         
-        # 验证每个事件都有title
+        # 验证并修复每个事件
         for event in events:
-            if not event.get("title"):
-                event["title"] = "未命名课程"
+            # 确保title不为空或占位符
+            if not event.get("title") or event["title"] in ["课程名称", "课程", "未知", ""]:
+                event["title"] = "未知课程"
+            
+            # 确保day_of_week有效
+            if event.get("day_of_week") not in ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]:
+                # 尝试从starts_at推断
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(event["starts_at"].replace("Z", "+00:00"))
+                    days = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+                    event["day_of_week"] = days[dt.weekday()]
+                except:
+                    event["day_of_week"] = "周一"
         
         return events
     except json.JSONDecodeError as e:
-        # 如果JSON解析失败，尝试手动解析
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"AI返回格式错误: {str(e)}"
@@ -178,10 +194,10 @@ async def upload_timetable(
             "success": True,
             "message": f"当前为离线模式，已解析文件：{filename}。请配置API Key以使用AI解析。",
             "events": [
-                {"title": "高等数学", "starts_at": "2026-09-01T08:00:00", "ends_at": "2026-09-01T09:40:00", "location": "A101", "day_of_week": "周一", "teacher": "张教授"},
-                {"title": "数据结构", "starts_at": "2026-09-01T14:00:00", "ends_at": "2026-09-01T15:40:00", "location": "B202", "day_of_week": "周一", "teacher": "李老师"},
-                {"title": "英语听说", "starts_at": "2026-09-02T10:00:00", "ends_at": "2026-09-02T11:40:00", "location": "C305", "day_of_week": "周二", "teacher": "王老师"},
-                {"title": "Python程序设计", "starts_at": "2026-09-03T14:00:00", "ends_at": "2026-09-03T15:40:00", "location": "D401", "day_of_week": "周三", "teacher": "赵教授"},
+                {"title": "高等数学", "starts_at": "2026-09-01T08:20:00", "ends_at": "2026-09-01T09:05:00", "location": "A101", "day_of_week": "周一", "teacher": "张教授"},
+                {"title": "数据结构", "starts_at": "2026-09-01T14:00:00", "ends_at": "2026-09-01T14:45:00", "location": "B202", "day_of_week": "周一", "teacher": "李老师"},
+                {"title": "英语听说", "starts_at": "2026-09-02T10:10:00", "ends_at": "2026-09-02T10:55:00", "location": "C305", "day_of_week": "周二", "teacher": "王老师"},
+                {"title": "Python程序设计", "starts_at": "2026-09-03T15:50:00", "ends_at": "2026-09-03T16:35:00", "location": "D401", "day_of_week": "周三", "teacher": "赵教授"},
             ]
         }
     
@@ -216,8 +232,8 @@ async def parse_text_timetable(
             "success": True,
             "message": "当前为离线模式，返回示例课表数据。",
             "events": [
-                {"title": "高等数学", "starts_at": "2026-09-01T08:00:00", "ends_at": "2026-09-01T09:40:00", "location": "A101", "day_of_week": "周一", "teacher": "张教授"},
-                {"title": "数据结构", "starts_at": "2026-09-01T14:00:00", "ends_at": "2026-09-01T15:40:00", "location": "B202", "day_of_week": "周一", "teacher": "李老师"},
+                {"title": "高等数学", "starts_at": "2026-09-01T08:20:00", "ends_at": "2026-09-01T09:05:00", "location": "A101", "day_of_week": "周一", "teacher": "张教授"},
+                {"title": "数据结构", "starts_at": "2026-09-01T14:00:00", "ends_at": "2026-09-01T14:45:00", "location": "B202", "day_of_week": "周一", "teacher": "李老师"},
             ]
         }
     
