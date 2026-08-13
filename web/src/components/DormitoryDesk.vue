@@ -56,12 +56,26 @@ const uploadProgress = ref('')
 const dragover = ref(false)
 const parseMode = ref<'text' | 'file'>('text')
 
-// 时间段
+// 时间段（学校实际上课时间）
 const timeSlots = [
-  '08:00', '09:00', '10:00', '11:00', '12:00',
-  '13:00', '14:00', '15:00', '16:00', '17:00',
-  '18:00', '19:00', '20:00'
+  '08:20', '09:10', '10:10', '11:00',
+  '14:00', '14:50', '15:50', '16:40',
+  '19:00', '19:50'
 ]
+
+// 节次信息
+const slotInfo: Record<string, { name: string, end: string }> = {
+  '08:20': { name: '第1节', end: '09:05' },
+  '09:10': { name: '第2节', end: '09:55' },
+  '10:10': { name: '第3节', end: '10:55' },
+  '11:00': { name: '第4节', end: '11:45' },
+  '14:00': { name: '第5节', end: '14:45' },
+  '14:50': { name: '第6节', end: '15:35' },
+  '15:50': { name: '第7节', end: '16:35' },
+  '16:40': { name: '第8节', end: '17:25' },
+  '19:00': { name: '第9节', end: '19:45' },
+  '19:50': { name: '第10节', end: '20:35' }
+}
 
 // 星期
 const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
@@ -343,10 +357,10 @@ function getDayOfWeek(dateStr: string) {
         </div>
         <div class="form-row">
           <label>开始时间<select v-model="newEvent.startTime">
-            <option v-for="time in timeSlots" :key="time" :value="time">{{ time }}</option>
+            <option v-for="time in timeSlots" :key="time" :value="time">{{ slotInfo[time]?.name }} {{ time }}</option>
           </select></label>
           <label>结束时间<select v-model="newEvent.endTime">
-            <option v-for="time in timeSlots" :key="time" :value="time">{{ time }}</option>
+            <option v-for="time in timeSlots" :key="time" :value="time">{{ slotInfo[time]?.end }}</option>
           </select></label>
           <label>地点<input v-model="newEvent.location" placeholder="选填"></label>
         </div>
@@ -364,7 +378,7 @@ function getDayOfWeek(dateStr: string) {
           </thead>
           <tbody>
             <tr v-for="time in timeSlots" :key="time">
-              <td class="time-cell">{{ time }}</td>
+              <td class="time-cell"><div class="slot-name">{{ slotInfo[time]?.name }}</div><div class="slot-time">{{ time }}</div></td>
               <td v-for="day in weekdays" :key="day" :class="{ 'has-event': timetableGrid[day]?.[time], 'is-custom': timetableGrid[day]?.[time]?.type === 'custom' }">
                 <div v-if="timetableGrid[day]?.[time]" class="event-cell">
                   <div class="event-title">{{ timetableGrid[day][time].title }}</div>

@@ -1065,7 +1065,20 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   background: #f5f4eb;
   font-weight: 600;
   color: #172b2a;
-  font-size: 14px;
+  font-size: 12px;
+  padding: 6px 4px;
+}
+
+.slot-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #173f43;
+}
+
+.slot-time {
+  font-size: 11px;
+  color: #667572;
+  margin-top: 2px;
 }
 
 .has-event {
