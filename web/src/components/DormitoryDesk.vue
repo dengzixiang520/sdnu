@@ -118,15 +118,31 @@ const timetableGrid = computed(() => {
   events.value.forEach(event => {
     const day = event.day_of_week || getDayOfWeek(event.starts_at)
     const startTime = formatTime(event.starts_at)
-    const closestSlot = findClosestSlot(startTime)
+    const endTime = formatTime(event.ends_at)
     
-    if (closestSlot && grid[day] && grid[day][closestSlot] === null) {
-      grid[day][closestSlot] = {
-        title: event.title,
-        location: event.location,
-        teacher: event.teacher,
-        endTime: formatTime(event.ends_at),
-        type: 'course'
+    // 找到开始时间对应的时间段
+    const startSlot = findClosestSlot(startTime)
+    // 找到结束时间对应的时间段
+    const endSlot = findClosestSlot(endTime)
+    
+    if (startSlot && grid[day]) {
+      // 计算需要填充的时间段范围
+      const startIndex = timeSlots.indexOf(startSlot)
+      const endIndex = endSlot ? timeSlots.indexOf(endSlot) : startIndex
+      
+      // 填充所有相关时间段
+      for (let i = startIndex; i <= endIndex && i < timeSlots.length; i++) {
+        const slot = timeSlots[i]
+        if (grid[day][slot] === null) {
+          grid[day][slot] = {
+            title: event.title,
+            location: event.location,
+            teacher: event.teacher,
+            endTime: endTime,
+            type: 'course',
+            isMultiSlot: startIndex !== endIndex // 标记是否为多节课
+          }
+        }
       }
     }
   })
