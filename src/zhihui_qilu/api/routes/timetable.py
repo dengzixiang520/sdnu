@@ -62,30 +62,42 @@ async def parse_with_deepseek(content: str, provider: Any) -> list[dict[str, str
     """Use DeepSeek to parse timetable content."""
     from zhihui_qilu.ai.provider import ChatMessage
     
-    system_prompt = """你是一个课表解析助手。请从用户提供的文本中提取课程信息，并以JSON数组格式返回。
+    system_prompt = """你是一个课表解析助手。请从用户提供的文本中提取课程信息。
 
-每个课程对象包含以下字段：
-- title: 课程名称（必填）
-- starts_at: 开始时间（ISO格式，如2026-09-01T08:00:00）
-- ends_at: 结束时间（ISO格式，如2026-09-01T09:40:00）
-- location: 上课教室/地点
-- day_of_week: 星期几（周一到周日）
-- teacher: 授课教师姓名
+请严格按照以下JSON格式返回，每个字段都不能为空字符串：
+```json
+[
+  {
+    "title": "课程名称",
+    "starts_at": "2026-09-01T08:00:00",
+    "ends_at": "2026-09-01T09:40:00",
+    "location": "教室地点",
+    "day_of_week": "周一",
+    "teacher": "教师姓名"
+  }
+]
+```
 
-重要提示：
-1. 如果文本中有明确的课程名称、时间、地点、教师信息，请全部提取
-2. 如果没有明确日期，请使用2026年9月的第一周作为示例
-3. 确保返回的JSON格式正确，每个字段都有值（没有就留空字符串）
-4. 只返回JSON数组，不要返回其他任何内容"""
+重要规则：
+1. title（课程名称）必须是具体的课程名，如"高等数学"、"英语听说"，不能为空
+2. 如果文本中没有明确日期，使用2026年9月第一周的日期
+3. day_of_week必须是：周一、周二、周三、周四、周五、周六、周日
+4. 只返回JSON数组，不要返回其他任何文字"""
+
+    user_message = f"""请解析以下课表内容，提取每门课程的名称、时间、地点和教师信息：
+
+{content}
+
+请返回标准JSON数组格式。"""
 
     messages = [
         ChatMessage(role="system", content=system_prompt),
-        ChatMessage(role="user", content=f"请解析以下课表内容，提取所有课程信息：\n\n{content}")
+        ChatMessage(role="user", content=user_message)
     ]
     
     try:
         response = await provider.complete(messages, temperature=0.1)
-        # 尝试解析JSON
+        # 清理响应，提取JSON
         response = response.strip()
         if response.startswith("```json"):
             response = response[7:]
@@ -96,7 +108,19 @@ async def parse_with_deepseek(content: str, provider: Any) -> list[dict[str, str
         response = response.strip()
         
         events = json.loads(response)
+        
+        # 验证每个事件都有title
+        for event in events:
+            if not event.get("title"):
+                event["title"] = "未命名课程"
+        
         return events
+    except json.JSONDecodeError as e:
+        # 如果JSON解析失败，尝试手动解析
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI返回格式错误: {str(e)}"
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

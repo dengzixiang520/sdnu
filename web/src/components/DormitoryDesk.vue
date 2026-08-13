@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { command } from '../api'
 
 interface Event { 
@@ -17,7 +17,16 @@ interface Transfer {
   amount: string 
 }
 
-const timetable = ref('2026-09-01 08:00-09:40 高等数学 @ A101\n2026-09-01 14:00-15:40 数据结构 @ B202')
+interface CustomEvent {
+  id: number
+  title: string
+  day: string
+  startTime: string
+  endTime: string
+  location: string
+}
+
+const timetable = ref('周一 08:00-09:40 高等数学 A101 张教授\n周一 14:00-15:40 数据结构 B202 李老师\n周二 10:00-11:40 英语听说 C305 王老师\n周三 14:00-15:40 Python程序设计 D401 赵教授')
 const events = ref<Event[]>([])
 const parseMessage = ref('')
 const amount = ref('36.00')
@@ -29,29 +38,79 @@ const observation = ref('阳台物品暂未归位')
 const loading = ref(false)
 const error = ref('')
 
+// 自定义行程
+const customEvents = ref<CustomEvent[]>([])
+const showAddForm = ref(false)
+const newEvent = ref<CustomEvent>({
+  id: 0,
+  title: '',
+  day: '周一',
+  startTime: '08:00',
+  endTime: '09:00',
+  location: ''
+})
+
 // 文件上传相关
 const fileInput = ref<HTMLInputElement | null>(null)
 const uploadProgress = ref('')
 const dragover = ref(false)
-
-// 解析模式：text 或 file
 const parseMode = ref<'text' | 'file'>('text')
 
-async function importTimetable() {
-  loading.value = true
-  error.value = ''
-  try {
-    const result = await command('dormitory', 'parse_text_timetable', timetable.value)
-    events.value = result.data.events as Event[]
-    parseMessage.value = result.message
-  } catch (err) {
-    parseMessage.value = err instanceof Error ? err.message : '解析失败'
-  } finally {
-    loading.value = false
-  }
-}
+// 时间段
+const timeSlots = [
+  '08:00', '09:00', '10:00', '11:00', '12:00',
+  '13:00', '14:00', '15:00', '16:00', '17:00',
+  '18:00', '19:00', '20:00'
+]
 
-async function parseWithAI() {
+// 星期
+const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+
+// 将事件转换为表格数据
+const timetableGrid = computed(() => {
+  const grid: Record<string, Record<string, any>> = {}
+  
+  weekdays.forEach(day => {
+    grid[day] = {}
+    timeSlots.forEach(time => {
+      grid[day][time] = null
+    })
+  })
+  
+  // 填充解析的事件
+  events.value.forEach(event => {
+    const day = event.day_of_week || getDayOfWeek(event.starts_at)
+    const startTime = formatTime(event.starts_at)
+    const timeKey = startTime.substring(0, 5)
+    
+    if (grid[day] && grid[day][timeKey] !== undefined) {
+      grid[day][timeKey] = {
+        title: event.title,
+        location: event.location,
+        teacher: event.teacher,
+        endTime: formatTime(event.ends_at),
+        type: 'course'
+      }
+    }
+  })
+  
+  // 填充自定义行程
+  customEvents.value.forEach(event => {
+    const timeKey = event.startTime.substring(0, 5)
+    if (grid[event.day] && grid[event.day][timeKey] !== undefined) {
+      grid[event.day][timeKey] = {
+        title: event.title,
+        location: event.location,
+        endTime: event.endTime,
+        type: 'custom'
+      }
+    }
+  })
+  
+  return grid
+})
+
+async function importTimetable() {
   loading.value = true
   error.value = ''
   try {
@@ -116,7 +175,6 @@ function handleFileSelect(event: Event) {
 function handleDrop(event: DragEvent) {
   event.preventDefault()
   dragover.value = false
-  
   if (event.dataTransfer?.files && event.dataTransfer.files.length > 0) {
     uploadFile(event.dataTransfer.files[0])
   }
@@ -133,6 +191,33 @@ function handleDragLeave() {
 
 function triggerFileInput() {
   fileInput.value?.click()
+}
+
+function addCustomEvent() {
+  if (!newEvent.value.title) {
+    error.value = '请输入行程名称'
+    return
+  }
+  
+  customEvents.value.push({
+    ...newEvent.value,
+    id: Date.now()
+  })
+  
+  // 重置表单
+  newEvent.value = {
+    id: 0,
+    title: '',
+    day: '周一',
+    startTime: '08:00',
+    endTime: '09:00',
+    location: ''
+  }
+  showAddForm.value = false
+}
+
+function removeCustomEvent(id: number) {
+  customEvents.value = customEvents.value.filter(e => e.id !== id)
 }
 
 async function settle() {
@@ -192,7 +277,7 @@ function getDayOfWeek(dateStr: string) {
     const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
     return days[new Date(dateStr).getDay()]
   } catch {
-    return ''
+    return '周一'
   }
 }
 </script>
@@ -209,117 +294,119 @@ function getDayOfWeek(dateStr: string) {
     
     <p v-if="error" class="inline-error page-error">{{ error }}</p>
     
-    <div class="dorm-grid">
-      <!-- 课表与行程 -->
-      <article class="timetable-panel">
-        <p class="micro">01 / 课表与行程</p>
-        
-        <!-- 解析模式切换 -->
-        <div class="parse-mode-switch">
-          <button 
-            :class="{ active: parseMode === 'text' }" 
-            @click="parseMode = 'text'"
-          >
-            文本输入
+    <!-- 课表与行程 -->
+    <article class="timetable-panel">
+      <p class="micro">01 / 课表与行程</p>
+      
+      <!-- 解析模式切换 -->
+      <div class="parse-mode-switch">
+        <button :class="{ active: parseMode === 'text' }" @click="parseMode = 'text'">文本输入</button>
+        <button :class="{ active: parseMode === 'file' }" @click="parseMode = 'file'">文件上传</button>
+      </div>
+      
+      <!-- 文本输入模式 -->
+      <div v-if="parseMode === 'text'" class="parse-section">
+        <textarea v-model="timetable" class="schedule-input" aria-label="文本课表" placeholder="输入课表文本，格式：星期 时间 课程名 地点 教师"></textarea>
+        <div class="panel-action">
+          <span>{{ parseMessage }}</span>
+          <button class="ink-button primary" :disabled="loading" @click="importTimetable">
+            {{ loading ? '解析中...' : 'AI 解析课表' }}
           </button>
-          <button 
-            :class="{ active: parseMode === 'file' }" 
-            @click="parseMode = 'file'"
-          >
-            文件上传
-          </button>
         </div>
-        
-        <!-- 文本输入模式 -->
-        <div v-if="parseMode === 'text'">
-          <textarea 
-            v-model="timetable" 
-            class="schedule-input" 
-            aria-label="文本课表"
-            placeholder="输入课表文本，格式：日期 时间 课程名 @ 地点"
-          ></textarea>
-          <div class="panel-action">
-            <span>{{ parseMessage }}</span>
-            <button class="ink-button" :disabled="loading" @click="importTimetable">
-              {{ loading ? '解析中...' : '本地解析' }}
-            </button>
-            <button class="ink-button primary" :disabled="loading" @click="parseWithAI">
-              {{ loading ? '解析中...' : 'AI 解析' }}
-            </button>
-          </div>
+      </div>
+      
+      <!-- 文件上传模式 -->
+      <div v-else class="file-upload-section">
+        <div class="upload-area" :class="{ dragover }" @drop="handleDrop" @dragover="handleDragOver" @dragleave="handleDragLeave" @click="triggerFileInput">
+          <input ref="fileInput" type="file" accept=".txt,.csv,.xlsx,.xls,.ics,.pdf" style="display: none" @change="handleFileSelect">
+          <div class="upload-icon">📁</div>
+          <p class="upload-text">{{ uploadProgress || '点击或拖拽文件到此处上传' }}</p>
+          <p class="upload-hint">支持 .txt .csv .xlsx .xls .ics .pdf 格式</p>
         </div>
-        
-        <!-- 文件上传模式 -->
-        <div v-else class="file-upload-section">
-          <div 
-            class="upload-area"
-            :class="{ dragover }"
-            @drop="handleDrop"
-            @dragover="handleDragOver"
-            @dragleave="handleDragLeave"
-            @click="triggerFileInput"
-          >
-            <input 
-              ref="fileInput"
-              type="file" 
-              accept=".txt,.csv,.xlsx,.xls,.ics,.pdf"
-              style="display: none"
-              @change="handleFileSelect"
-            >
-            <div class="upload-icon">📁</div>
-            <p class="upload-text">
-              {{ uploadProgress || '点击或拖拽文件到此处上传' }}
-            </p>
-            <p class="upload-hint">支持 .txt .csv .xlsx .xls .ics .pdf 格式</p>
-          </div>
+      </div>
+      
+      <!-- 添加行程按钮 -->
+      <div class="add-event-section">
+        <button class="ink-button" @click="showAddForm = !showAddForm">
+          {{ showAddForm ? '取消添加' : '+ 添加自定义行程' }}
+        </button>
+      </div>
+      
+      <!-- 添加行程表单 -->
+      <div v-if="showAddForm" class="add-event-form">
+        <h3>添加新行程</h3>
+        <div class="form-row">
+          <label>名称<input v-model="newEvent.title" placeholder="如：社团活动"></label>
+          <label>星期<select v-model="newEvent.day">
+            <option v-for="day in weekdays" :key="day" :value="day">{{ day }}</option>
+          </select></label>
         </div>
-        
-        <!-- 课表结果 -->
-        <div v-if="events.length" class="event-list">
-          <div v-for="event in events" :key="`${event.title}${event.starts_at}`" class="event-row">
-            <div class="event-time">
-              <time>{{ formatTime(event.starts_at) }}</time>
-              <span class="event-day">{{ event.day_of_week || getDayOfWeek(event.starts_at) }}</span>
-            </div>
-            <div class="event-info">
-              <b class="event-title">{{ event.title }}</b>
-              <div class="event-details">
-                <span v-if="event.location" class="event-location">📍 {{ event.location }}</span>
-                <span v-if="event.teacher" class="event-teacher">👨‍🏫 {{ event.teacher }}</span>
-              </div>
-            </div>
-            <div class="event-end-time">
-              <span>结束</span>
-              <time>{{ formatTime(event.ends_at) }}</time>
-            </div>
-          </div>
+        <div class="form-row">
+          <label>开始时间<select v-model="newEvent.startTime">
+            <option v-for="time in timeSlots" :key="time" :value="time">{{ time }}</option>
+          </select></label>
+          <label>结束时间<select v-model="newEvent.endTime">
+            <option v-for="time in timeSlots" :key="time" :value="time">{{ time }}</option>
+          </select></label>
+          <label>地点<input v-model="newEvent.location" placeholder="选填"></label>
         </div>
-      </article>
+        <button class="ink-button primary" @click="addCustomEvent">确认添加</button>
+      </div>
+      
+      <!-- 课表表格 -->
+      <div class="timetable-grid">
+        <table>
+          <thead>
+            <tr>
+              <th class="time-header">时间</th>
+              <th v-for="day in weekdays" :key="day">{{ day }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="time in timeSlots" :key="time">
+              <td class="time-cell">{{ time }}</td>
+              <td v-for="day in weekdays" :key="day" :class="{ 'has-event': timetableGrid[day]?.[time], 'is-custom': timetableGrid[day]?.[time]?.type === 'custom' }">
+                <div v-if="timetableGrid[day]?.[time]" class="event-cell">
+                  <div class="event-title">{{ timetableGrid[day][time].title }}</div>
+                  <div class="event-info">
+                    <span v-if="timetableGrid[day][time].location">📍{{ timetableGrid[day][time].location }}</span>
+                    <span v-if="timetableGrid[day][time].teacher">👨‍🏫{{ timetableGrid[day][time].teacher }}</span>
+                  </div>
+                  <button v-if="timetableGrid[day][time].type === 'custom'" class="remove-btn" @click="removeCustomEvent(timetableGrid[day][time].id)">×</button>
+                </div>
+                <div v-else class="empty-cell">空档</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
 
-      <!-- 公用记账 -->
-      <article class="split-panel">
-        <p class="micro">02 / 公用记账</p>
-        <h2>按分计算，生成清晰的转账建议。</h2>
+    <!-- 公用记账 -->
+    <article class="split-panel">
+      <p class="micro">02 / 公用记账</p>
+      <h2>按分计算，生成清晰的转账建议。</h2>
+      <div class="form-row">
         <label>金额<input v-model="amount" inputmode="decimal" /></label>
         <label>付款人<input v-model="payer" /></label>
         <label>参与成员<input v-model="members" /></label>
-        <button class="ink-button" :disabled="loading" @click="settle">计算 AA 分摊</button>
-        <ul v-if="transfers.length" class="transfer-list">
-          <li v-for="transfer in transfers" :key="`${transfer.from_member_id}${transfer.to_member_id}`">
-            {{ transfer.from_member_id }} <span>→</span> {{ transfer.to_member_id }} <strong>¥{{ transfer.amount }}</strong>
-          </li>
-        </ul>
-        <p v-else class="empty-state">填写金额和成员后计算。</p>
-      </article>
+      </div>
+      <button class="ink-button primary" :disabled="loading" @click="settle">计算 AA 分摊</button>
+      <ul v-if="transfers.length" class="transfer-list">
+        <li v-for="transfer in transfers" :key="`${transfer.from_member_id}${transfer.to_member_id}`">
+          {{ transfer.from_member_id }} <span>→</span> {{ transfer.to_member_id }} <strong>¥{{ transfer.amount }}</strong>
+        </li>
+      </ul>
+      <p v-else class="empty-state">填写金额和成员后计算。</p>
+    </article>
 
-      <!-- 整改建议 -->
-      <article class="suggestion-panel">
-        <p class="micro">03 / 整改建议</p>
-        <h2>把检查记录改写为可执行建议。</h2>
-        <label>观察到的情况<input v-model="observation" /></label>
-        <button class="soft-button" @click="improve">生成建议</button>
-        <p v-if="suggestion" class="suggestion-copy">{{ suggestion }}</p>
-      </article>
-    </div>
+    <!-- 整改建议 -->
+    <article class="suggestion-panel">
+      <p class="micro">03 / 整改建议</p>
+      <h2>把检查记录改写为可执行建议。</h2>
+      <label>观察到的情况<input v-model="observation" /></label>
+      <button class="soft-button" @click="improve">生成建议</button>
+      <p v-if="suggestion" class="suggestion-copy">{{ suggestion }}</p>
+    </article>
   </section>
 </template>
