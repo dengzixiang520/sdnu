@@ -17,13 +17,7 @@ class TimetableEvent(BaseModel):
     ends_at: str
     location: str = ""
     day_of_week: str = ""
-
-
-class ParseResponse(BaseModel):
-    """Response from timetable parsing."""
-    success: bool
-    message: str
-    events: list[TimetableEvent] = []
+    teacher: str = ""
 
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
@@ -71,24 +65,27 @@ async def parse_with_deepseek(content: str, provider: Any) -> list[dict[str, str
     system_prompt = """你是一个课表解析助手。请从用户提供的文本中提取课程信息，并以JSON数组格式返回。
 
 每个课程对象包含以下字段：
-- title: 课程名称
+- title: 课程名称（必填）
 - starts_at: 开始时间（ISO格式，如2026-09-01T08:00:00）
 - ends_at: 结束时间（ISO格式，如2026-09-01T09:40:00）
-- location: 上课地点
+- location: 上课教室/地点
 - day_of_week: 星期几（周一到周日）
+- teacher: 授课教师姓名
 
-如果文本中没有明确的日期，请使用2026年9月的第一周作为示例日期。
-只返回JSON数组，不要返回其他内容。"""
+重要提示：
+1. 如果文本中有明确的课程名称、时间、地点、教师信息，请全部提取
+2. 如果没有明确日期，请使用2026年9月的第一周作为示例
+3. 确保返回的JSON格式正确，每个字段都有值（没有就留空字符串）
+4. 只返回JSON数组，不要返回其他任何内容"""
 
     messages = [
         ChatMessage(role="system", content=system_prompt),
-        ChatMessage(role="user", content=f"请解析以下课表内容：\n\n{content}")
+        ChatMessage(role="user", content=f"请解析以下课表内容，提取所有课程信息：\n\n{content}")
     ]
     
     try:
-        response = await provider.complete(messages, temperature=0.3)
+        response = await provider.complete(messages, temperature=0.1)
         # 尝试解析JSON
-        # 处理可能的markdown代码块
         response = response.strip()
         if response.startswith("```json"):
             response = response[7:]
@@ -113,13 +110,11 @@ async def upload_timetable(
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
     """Upload and parse a timetable file using AI."""
-    # 读取文件内容
     try:
         content_bytes = await file.read()
         filename = file.filename or ""
         file_ext = filename.lower().split(".")[-1] if "." in filename else ""
         
-        # 根据文件类型提取文本
         if file_ext == "pdf":
             content = extract_text_from_pdf(content_bytes)
         elif file_ext in ["xlsx", "xls"]:
@@ -129,7 +124,7 @@ async def upload_timetable(
                 content = content_bytes.decode("utf-8")
             except UnicodeDecodeError:
                 content = content_bytes.decode("gbk")
-        else:  # txt, ics 等文本文件
+        else:
             try:
                 content = content_bytes.decode("utf-8")
             except UnicodeDecodeError:
@@ -151,24 +146,21 @@ async def upload_timetable(
             detail="文件内容为空或无法解析"
         )
     
-    # 获取AI provider
     container = request.app.state.container
     provider = container.ai_provider
     
     if not provider.available:
-        # 使用离线模式，返回示例数据
         return {
             "success": True,
-            "message": f"当前为离线模式，返回示例课表数据。已解析文件：{filename}。请配置API Key以使用AI解析。",
+            "message": f"当前为离线模式，已解析文件：{filename}。请配置API Key以使用AI解析。",
             "events": [
-                {"title": "高等数学", "starts_at": "2026-09-01T08:00:00", "ends_at": "2026-09-01T09:40:00", "location": "A101", "day_of_week": "周一"},
-                {"title": "数据结构", "starts_at": "2026-09-01T14:00:00", "ends_at": "2026-09-01T15:40:00", "location": "B202", "day_of_week": "周一"},
-                {"title": "英语听说", "starts_at": "2026-09-02T10:00:00", "ends_at": "2026-09-02T11:40:00", "location": "C305", "day_of_week": "周二"},
-                {"title": "Python程序设计", "starts_at": "2026-09-03T14:00:00", "ends_at": "2026-09-03T15:40:00", "location": "D401", "day_of_week": "周三"},
+                {"title": "高等数学", "starts_at": "2026-09-01T08:00:00", "ends_at": "2026-09-01T09:40:00", "location": "A101", "day_of_week": "周一", "teacher": "张教授"},
+                {"title": "数据结构", "starts_at": "2026-09-01T14:00:00", "ends_at": "2026-09-01T15:40:00", "location": "B202", "day_of_week": "周一", "teacher": "李老师"},
+                {"title": "英语听说", "starts_at": "2026-09-02T10:00:00", "ends_at": "2026-09-02T11:40:00", "location": "C305", "day_of_week": "周二", "teacher": "王老师"},
+                {"title": "Python程序设计", "starts_at": "2026-09-03T14:00:00", "ends_at": "2026-09-03T15:40:00", "location": "D401", "day_of_week": "周三", "teacher": "赵教授"},
             ]
         }
     
-    # 使用DeepSeek解析
     events = await parse_with_deepseek(content, provider)
     
     return {
@@ -192,22 +184,19 @@ async def parse_text_timetable(
             detail="内容不能为空"
         )
     
-    # 获取AI provider
     container = request.app.state.container
     provider = container.ai_provider
     
     if not provider.available:
-        # 使用离线模式
         return {
             "success": True,
             "message": "当前为离线模式，返回示例课表数据。",
             "events": [
-                {"title": "高等数学", "starts_at": "2026-09-01T08:00:00", "ends_at": "2026-09-01T09:40:00", "location": "A101", "day_of_week": "周一"},
-                {"title": "数据结构", "starts_at": "2026-09-01T14:00:00", "ends_at": "2026-09-01T15:40:00", "location": "B202", "day_of_week": "周一"},
+                {"title": "高等数学", "starts_at": "2026-09-01T08:00:00", "ends_at": "2026-09-01T09:40:00", "location": "A101", "day_of_week": "周一", "teacher": "张教授"},
+                {"title": "数据结构", "starts_at": "2026-09-01T14:00:00", "ends_at": "2026-09-01T15:40:00", "location": "B202", "day_of_week": "周一", "teacher": "李老师"},
             ]
         }
     
-    # 使用DeepSeek解析
     events = await parse_with_deepseek(content, provider)
     
     return {

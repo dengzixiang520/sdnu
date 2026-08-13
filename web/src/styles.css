@@ -918,17 +918,48 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 6px;
+}
+
+.event-title {
+  font-size: 16px;
+  color: #172b2a;
+  font-weight: 700;
+}
+
+.event-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.event-location,
+.event-teacher {
+  font-size: 13px;
+  color: #667572;
+  display: flex;
+  align-items: center;
   gap: 4px;
 }
 
-.event-info b {
-  font-size: 15px;
-  color: #172b2a;
+.event-end-time {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 60px;
+  padding-left: 12px;
+  border-left: 1px solid #eef1ea;
 }
 
-.event-info span {
-  font-size: 13px;
+.event-end-time span {
+  font-size: 11px;
+  color: #999;
+}
+
+.event-end-time time {
+  font-size: 14px;
   color: #667572;
+  font-weight: 600;
 }
 
 .ink-button.primary {

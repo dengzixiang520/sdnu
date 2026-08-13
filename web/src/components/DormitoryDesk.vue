@@ -8,6 +8,7 @@ interface Event {
   ends_at: string
   location?: string
   day_of_week?: string
+  teacher?: string
 }
 
 interface Transfer { 
@@ -281,8 +282,15 @@ function getDayOfWeek(dateStr: string) {
               <span class="event-day">{{ event.day_of_week || getDayOfWeek(event.starts_at) }}</span>
             </div>
             <div class="event-info">
-              <b>{{ event.title }}</b>
-              <span>{{ event.location || '地点待定' }}</span>
+              <b class="event-title">{{ event.title }}</b>
+              <div class="event-details">
+                <span v-if="event.location" class="event-location">📍 {{ event.location }}</span>
+                <span v-if="event.teacher" class="event-teacher">👨‍🏫 {{ event.teacher }}</span>
+              </div>
+            </div>
+            <div class="event-end-time">
+              <span>结束</span>
+              <time>{{ formatTime(event.ends_at) }}</time>
             </div>
           </div>
         </div>
