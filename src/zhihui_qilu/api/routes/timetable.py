@@ -3,12 +3,16 @@
 import json
 import io
 import re
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/v1/timetable", tags=["timetable"])
+
+# 课表数据存储路径
+TIMETABLE_FILE = Path("./data/timetable.json")
 
 
 class TimetableEvent(BaseModel):
@@ -21,34 +25,51 @@ class TimetableEvent(BaseModel):
     teacher: str = ""
 
 
+def load_saved_timetable() -> list[dict[str, str]]:
+    """Load saved timetable from file."""
+    if TIMETABLE_FILE.exists():
+        try:
+            with open(TIMETABLE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+
+def save_timetable(events: list[dict[str, str]]) -> None:
+    """Save timetable to file."""
+    TIMETABLE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(TIMETABLE_FILE, "w", encoding="utf-8") as f:
+        json.dump(events, f, ensure_ascii=False, indent=2)
+
+
 def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
     """Parse PDF timetable by directly reading table structure."""
     import pdfplumber
     
-    # 节次时间映射（支持单节和双节）
+    # 节次时间映射
     slot_times = {
-        '1': ('08:20', '09:05'),    # 第1节
-        '2': ('09:10', '09:55'),    # 第2节
-        '3': ('10:10', '10:55'),    # 第3节
-        '4': ('11:00', '11:45'),    # 第4节
-        '5': ('14:00', '14:45'),    # 第5节
-        '6': ('14:50', '15:35'),    # 第6节
-        '7': ('15:50', '16:35'),    # 第7节
-        '8': ('16:40', '17:25'),    # 第8节
-        '9': ('19:00', '19:45'),    # 第9节
-        '10': ('19:50', '20:35')    # 第10节
+        '1': ('08:20', '09:05'),
+        '2': ('09:10', '09:55'),
+        '3': ('10:10', '10:55'),
+        '4': ('11:00', '11:45'),
+        '5': ('14:00', '14:45'),
+        '6': ('14:50', '15:35'),
+        '7': ('15:50', '16:35'),
+        '8': ('16:40', '17:25'),
+        '9': ('19:00', '19:45'),
+        '10': ('19:50', '20:35')
     }
     
     # 连续两节课的时间映射
     double_slot_times = {
-        '1': ('08:20', '09:55'),    # 第1-2节
-        '3': ('10:10', '11:45'),    # 第3-4节
-        '5': ('14:00', '15:35'),    # 第5-6节
-        '7': ('15:50', '17:25'),    # 第7-8节
-        '9': ('19:00', '20:35')     # 第9-10节
+        '1': ('08:20', '09:55'),
+        '3': ('10:10', '11:45'),
+        '5': ('14:00', '15:35'),
+        '7': ('15:50', '17:25'),
+        '9': ('19:00', '20:35')
     }
     
-    # 星期映射
     day_map = {
         2: '周一', 3: '周二', 4: '周三', 5: '周四', 6: '周五', 7: '周六', 8: '周日'
     }
@@ -68,17 +89,13 @@ def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
                     slot = str(row[1]).strip() if row[1] else ''
                     
                     # 判断是单节还是双节课程
-                    # 如果当前行有课程，检查下一行是否也有课程
                     is_double = False
                     if slot in ['1', '3', '5', '7', '9']:
-                        # 检查下一行（偶数节）是否有相同课程
                         if row_idx + 1 < len(table):
                             next_row = table[row_idx + 1]
                             if next_row and len(next_row) > 2:
                                 next_slot = str(next_row[1]).strip() if next_row[1] else ''
-                                # 如果下一行是对应的偶数节
                                 if next_slot == str(int(slot) + 1):
-                                    # 比较是否有相同课程
                                     for col_idx in range(2, min(len(row), 9)):
                                         cell1 = row[col_idx] if col_idx < len(row) else None
                                         cell2 = next_row[col_idx] if col_idx < len(next_row) else None
@@ -89,7 +106,6 @@ def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
                                                 is_double = True
                                                 break
                     
-                    # 确定时间
                     if slot in double_slot_times and is_double:
                         start_time, end_time = double_slot_times[slot]
                     elif slot in slot_times:
@@ -97,7 +113,6 @@ def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
                     else:
                         continue
                     
-                    # 遍历星期列
                     for col_idx in range(2, min(len(row), 9)):
                         cell = row[col_idx]
                         if not cell or len(str(cell).strip()) < 5:
@@ -105,7 +120,6 @@ def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
                         
                         cell_text = str(cell)
                         
-                        # 提取课程名称
                         title = ''
                         if '★' in cell_text:
                             title = cell_text.split('★')[0].strip()
@@ -117,14 +131,12 @@ def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
                         if not title or len(title) < 2:
                             continue
                         
-                        # 提取教师
                         teacher = ''
                         if '教师:' in cell_text:
                             teacher_part = cell_text.split('教师:')[1]
                             teacher = re.split(r'[/\n]', teacher_part)[0].strip()
                             teacher = re.sub(r'教学班.*', '', teacher).strip()
                         
-                        # 提取地点
                         location = ''
                         if '场地:' in cell_text:
                             location_part = cell_text.split('场地:')[1]
@@ -132,7 +144,6 @@ def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
                         
                         day = day_map.get(col_idx, '周一')
                         
-                        # 去重
                         key = f"{day}_{title}_{start_time}"
                         if key in seen:
                             continue
@@ -154,14 +165,12 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     """Extract text from PDF file using pdfplumber."""
     try:
         import pdfplumber
-        
         text_parts = []
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for page in pdf.pages:
                 text = page.extract_text()
                 if text:
                     text_parts.append(text)
-        
         return "\n".join(text_parts)
     except Exception as e:
         raise HTTPException(
@@ -250,6 +259,17 @@ async def parse_with_deepseek(content: str, provider: Any) -> list[dict[str, str
         )
 
 
+@router.get("/saved")
+async def get_saved_timetable() -> dict[str, Any]:
+    """Get saved timetable."""
+    events = load_saved_timetable()
+    return {
+        "success": True,
+        "events": events,
+        "message": f"已加载 {len(events)} 个课程"
+    }
+
+
 @router.post("/upload")
 async def upload_timetable(
     request: Request,
@@ -264,9 +284,11 @@ async def upload_timetable(
         if file_ext == "pdf":
             events = parse_pdf_timetable(content_bytes)
             if events:
+                # 保存到文件
+                save_timetable(events)
                 return {
                     "success": True,
-                    "message": f"成功从 {filename} 解析 {len(events)} 个课程",
+                    "message": f"成功从 {filename} 解析并保存 {len(events)} 个课程",
                     "events": events
                 }
             content = extract_text_from_pdf(content_bytes)
@@ -311,9 +333,12 @@ async def upload_timetable(
     
     events = await parse_with_deepseek(content, provider)
     
+    # 保存到文件
+    save_timetable(events)
+    
     return {
         "success": True,
-        "message": f"成功从 {filename} 解析 {len(events)} 个课程",
+        "message": f"成功从 {filename} 解析并保存 {len(events)} 个课程",
         "events": events
     }
 
@@ -344,8 +369,11 @@ async def parse_text_timetable(
     
     events = await parse_with_deepseek(content, provider)
     
+    # 保存到文件
+    save_timetable(events)
+    
     return {
         "success": True,
-        "message": f"成功解析 {len(events)} 个课程",
+        "message": f"成功解析并保存 {len(events)} 个课程",
         "events": events
     }

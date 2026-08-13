@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { command } from '../api'
 
 // 课程颜色映射
@@ -56,6 +56,25 @@ function getOrAssignColor(title: string): { bg: string, border: string, text: st
   }
   return colorCache.get(title)!
 }
+
+// 加载已保存的课表
+async function loadSavedTimetable() {
+  try {
+    const response = await fetch('/api/v1/timetable/saved')
+    const result = await response.json()
+    if (result.success && result.events.length > 0) {
+      events.value = result.events
+      parseMessage.value = `已加载保存的课表（${result.events.length}个课程）`
+    }
+  } catch (err) {
+    console.log('没有已保存的课表')
+  }
+}
+
+// 页面加载时读取已保存的课表
+onMounted(() => {
+  loadSavedTimetable()
+})
 
 interface Event { 
   title: string
