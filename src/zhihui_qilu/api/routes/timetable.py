@@ -21,15 +21,27 @@ class TimetableEvent(BaseModel):
 
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
-    """Extract text from PDF file."""
+    """Extract text from PDF file using pdfplumber for better Chinese support."""
     try:
-        import PyPDF2
-        pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
+        import pdfplumber
+        import io
+        
         text_parts = []
-        for page in pdf_reader.pages:
-            text = page.extract_text()
-            if text:
-                text_parts.append(text)
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    text_parts.append(text)
+                
+                # 如果文本提取失败，尝试提取表格
+                if not text:
+                    tables = page.extract_tables()
+                    for table in tables:
+                        for row in table:
+                            row_text = " ".join([str(cell) if cell else "" for cell in row])
+                            if row_text.strip():
+                                text_parts.append(row_text)
+        
         return "\n".join(text_parts)
     except Exception as e:
         raise HTTPException(
@@ -72,6 +84,7 @@ async def parse_with_deepseek(content: str, provider: Any) -> list[dict[str, str
 5. location字段提取教室/地点信息
 6. day_of_week必须是：周一、周二、周三、周四、周五、周六、周日
 7. 如果没有明确日期，使用2026年9月第一周
+8. 注意：一个课程可能占多个节次（如3-4节），需要为每个节次创建单独的记录
 
 请返回JSON数组格式，示例：
 ```json
