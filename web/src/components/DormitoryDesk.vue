@@ -378,7 +378,7 @@ function getDayOfWeek(dateStr: string) {
           </thead>
           <tbody>
             <tr v-for="time in timeSlots" :key="time">
-              <td class="time-cell"><div class="slot-name">{{ slotInfo[time]?.name }}</div><div class="slot-time">{{ time }}</div></td>
+              <td class="time-cell"><div class="slot-label">{{ slotInfo[time]?.name }}</div><div class="slot-range">{{ time }}-{{ slotInfo[time]?.end }}</div></td>
               <td v-for="day in weekdays" :key="day" :class="{ 'has-event': timetableGrid[day]?.[time], 'is-custom': timetableGrid[day]?.[time]?.type === 'custom' }">
                 <div v-if="timetableGrid[day]?.[time]" class="event-cell">
                   <div class="event-title">{{ timetableGrid[day][time].title }}</div>

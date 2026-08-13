@@ -1066,16 +1066,17 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   font-weight: 600;
   color: #172b2a;
   font-size: 12px;
-  padding: 6px 4px;
+  padding: 8px 6px;
+  white-space: nowrap;
 }
 
-.slot-name {
+.slot-label {
   font-size: 13px;
   font-weight: 700;
   color: #173f43;
 }
 
-.slot-time {
+.slot-range {
   font-size: 11px;
   color: #667572;
   margin-top: 2px;
