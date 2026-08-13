@@ -2,6 +2,61 @@
 import { ref, computed } from 'vue'
 import { command } from '../api'
 
+// 课程颜色映射
+const courseColors: Record<string, { bg: string, border: string, text: string }> = {
+  '数字图像处理': { bg: '#e3f2fd', border: '#2196f3', text: '#1565c0' },
+  '计算机网络原理': { bg: '#e8f5e9', border: '#4caf50', text: '#2e7d32' },
+  '大学生就业指导': { bg: '#fff3e0', border: '#ff9800', text: '#e65100' },
+  '计算机图形学': { bg: '#f3e5f5', border: '#9c27b0', text: '#7b1fa2' },
+  '现代优化理论与应用': { bg: '#e0f7fa', border: '#00bcd4', text: '#00838f' },
+  '世界电影艺术赏析与多元文化理解': { bg: '#fce4ec', border: '#e91e63', text: '#c2185b' },
+  '世界电影艺术赏析': { bg: '#fce4ec', border: '#e91e63', text: '#c2185b' },
+  '机器学习': { bg: '#f1f8e9', border: '#8bc34a', text: '#558b2f' },
+  '算法分析与设计': { bg: '#ede7f6', border: '#673ab7', text: '#4527a0' },
+  '形势与政策': { bg: '#fff8e1', border: '#ffc107', text: '#f57f17' },
+}
+
+// 默认颜色（当课程不在映射中时使用）
+const defaultColors = [
+  { bg: '#e3f2fd', border: '#2196f3', text: '#1565c0' },
+  { bg: '#e8f5e9', border: '#4caf50', text: '#2e7d32' },
+  { bg: '#fff3e0', border: '#ff9800', text: '#e65100' },
+  { bg: '#f3e5f5', border: '#9c27b0', text: '#7b1fa2' },
+  { bg: '#e0f7fa', border: '#00bcd4', text: '#00838f' },
+  { bg: '#fce4ec', border: '#e91e63', text: '#c2185b' },
+  { bg: '#f1f8e9', border: '#8bc34a', text: '#558b2f' },
+  { bg: '#ede7f6', border: '#673ab7', text: '#4527a0' },
+]
+
+// 获取课程颜色
+function getCourseColor(title: string, index: number): { bg: string, border: string, text: string } {
+  // 先查找精确匹配
+  if (courseColors[title]) {
+    return courseColors[title]
+  }
+  
+  // 查找部分匹配
+  for (const [key, value] of Object.entries(courseColors)) {
+    if (title.includes(key) || key.includes(title)) {
+      return value
+    }
+  }
+  
+  // 使用默认颜色（根据索引循环）
+  return defaultColors[index % defaultColors.length]
+}
+
+// 课程颜色缓存
+const colorCache = new Map<string, { bg: string, border: string, text: string }>()
+let colorIndex = 0
+
+function getOrAssignColor(title: string): { bg: string, border: string, text: string } {
+  if (!colorCache.has(title)) {
+    colorCache.set(title, getCourseColor(title, colorIndex++))
+  }
+  return colorCache.get(title)!
+}
+
 interface Event { 
   title: string
   starts_at: string
@@ -419,8 +474,8 @@ function getDayOfWeek(dateStr: string) {
             <tr v-for="time in timeSlots" :key="time">
               <td class="time-cell"><div class="slot-label">{{ slotInfo[time]?.name }}</div><div class="slot-range">{{ time }}-{{ slotInfo[time]?.end }}</div></td>
               <td v-for="day in weekdays" :key="day" :class="{ 'has-event': timetableGrid[day]?.[time], 'is-custom': timetableGrid[day]?.[time]?.type === 'custom' }">
-                <div v-if="timetableGrid[day]?.[time]" class="event-cell">
-                  <div class="event-title">{{ timetableGrid[day][time].title }}</div>
+                <div v-if="timetableGrid[day]?.[time]" class="event-cell" :style="{ backgroundColor: getOrAssignColor(timetableGrid[day][time].title).bg, borderLeft: '4px solid ' + getOrAssignColor(timetableGrid[day][time].title).border }">
+                  <div class="event-title" :style="{ color: getOrAssignColor(timetableGrid[day][time].title).text }">{{ timetableGrid[day][time].title }}</div>
                   <div class="event-info">
                     <span v-if="timetableGrid[day][time].location">📍{{ timetableGrid[day][time].location }}</span>
                     <span v-if="timetableGrid[day][time].teacher">👨‍🏫{{ timetableGrid[day][time].teacher }}</span>

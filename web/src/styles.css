@@ -1083,16 +1083,19 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
 }
 
 .has-event {
-  background: #e8f4f0;
+  padding: 0;
 }
 
-.has-event.is-custom {
-  background: #fff3e0;
+.has-event.is-custom .event-cell {
+  background: #fff3e0 !important;
+  border-left-color: #ff9800 !important;
 }
 
 .event-cell {
   position: relative;
-  padding: 4px;
+  padding: 8px;
+  border-radius: 6px;
+  min-height: 60px;
 }
 
 .event-title {
