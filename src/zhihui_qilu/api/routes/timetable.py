@@ -25,18 +25,13 @@ def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
     """Parse PDF timetable by directly reading table structure."""
     import pdfplumber
     
-    # 节次时间映射
+    # 节次时间映射（连续两节课）
     slot_times = {
-        '1': ('08:20', '09:55'),
-        '2': ('08:20', '09:55'),
-        '3': ('10:10', '11:45'),
-        '4': ('10:10', '11:45'),
-        '5': ('14:00', '15:35'),
-        '6': ('14:00', '15:35'),
-        '7': ('15:50', '17:25'),
-        '8': ('15:50', '17:25'),
-        '9': ('19:00', '20:35'),
-        '10': ('19:00', '20:35')
+        '1': ('08:20', '09:55'),   # 1-2节
+        '3': ('10:10', '11:45'),   # 3-4节
+        '5': ('14:00', '15:35'),   # 5-6节
+        '7': ('15:50', '17:25'),   # 7-8节
+        '9': ('19:00', '20:35')    # 9-10节
     }
     
     # 星期映射（列索引 -> 星期几）
@@ -56,7 +51,7 @@ def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
                     if not row or len(row) < 3:
                         continue
                     
-                    # 获取节次信息
+                    # 获取节次信息（只处理1、3、5、7、9节）
                     slot = str(row[1]).strip() if row[1] else ''
                     if slot not in slot_times:
                         continue
@@ -71,7 +66,7 @@ def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
                         
                         cell_text = str(cell)
                         
-                        # 提取课程名称
+                        # 提取课程名称（★前面的文字）
                         title = ''
                         if '★' in cell_text:
                             title = cell_text.split('★')[0].strip()
@@ -84,25 +79,20 @@ def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
                         if not title or len(title) < 2:
                             continue
                         
-                        # 提取教师
+                        # 提取教师（教师:后面的内容）
                         teacher = ''
                         if '教师:' in cell_text:
                             teacher_part = cell_text.split('教师:')[1]
-                            if '/' in teacher_part:
-                                teacher = teacher_part.split('/')[0].strip()
-                            else:
-                                teacher = teacher_part.split('\n')[0].strip()
-                            # 清理教师名称
+                            # 取第一个/或\n之前的内容
+                            teacher = re.split(r'[/\n]', teacher_part)[0].strip()
+                            # 清理教学班等信息
                             teacher = re.sub(r'教学班.*', '', teacher).strip()
                         
-                        # 提取地点
+                        # 提取地点（场地:后面的内容）
                         location = ''
                         if '场地:' in cell_text:
                             location_part = cell_text.split('场地:')[1]
-                            if '/' in location_part:
-                                location = location_part.split('/')[0].strip()
-                            else:
-                                location = location_part.split('\n')[0].strip()
+                            location = re.split(r'[/\n]', location_part)[0].strip()
                         
                         day = day_map.get(col_idx, '周一')
                         
@@ -170,7 +160,7 @@ async def parse_with_deepseek(content: str, provider: Any) -> list[dict[str, str
     
     system_prompt = """你是一个课表解析助手。请从用户提供的课表数据中提取课程信息。
 
-【节次时间对应】
+【节次时间对应】（每节课是连续的两小节）
 - 第1-2节：08:20-09:55
 - 第3-4节：10:10-11:45
 - 第5-6节：14:00-15:35
@@ -230,7 +220,6 @@ async def upload_timetable(
         file_ext = filename.lower().split(".")[-1] if "." in filename else ""
         
         if file_ext == "pdf":
-            # 优先使用表格解析
             events = parse_pdf_timetable(content_bytes)
             if events:
                 return {
@@ -238,7 +227,6 @@ async def upload_timetable(
                     "message": f"成功从 {filename} 解析 {len(events)} 个课程",
                     "events": events
                 }
-            # 如果表格解析失败，使用文本解析+AI
             content = extract_text_from_pdf(content_bytes)
         elif file_ext in ["xlsx", "xls"]:
             content = extract_text_from_excel(content_bytes)
