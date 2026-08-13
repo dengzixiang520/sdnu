@@ -753,17 +753,56 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   line-height: 1.6;
 }
 
-/* 时间日期次要位置样式 */
+/* 时间日期横屏样式 */
 .date-block-side {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 12px;
-  padding: 24px 28px;
+  gap: 24px;
+  padding: 24px 32px;
   background: linear-gradient(135deg, #0f2b2e, #173f43, #1a4a4e);
   border-radius: 16px;
   color: white;
-  min-width: 160px;
+  min-width: 320px;
   box-shadow: 0 8px 24px rgba(15, 43, 46, 0.4);
   flex-shrink: 0;
+}
+
+.date-block-side .time-display {
+  font-size: 48px;
+  font-weight: 800;
+  font-family: 'Noto Sans SC Variable', monospace;
+  letter-spacing: 2px;
+  color: #d4f0e8;
+  border-right: 2px solid rgba(212, 240, 232, 0.3);
+  padding-right: 24px;
+}
+
+.date-block-side .date-info {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.date-block-side .date-info strong {
+  font-size: 48px;
+  font-weight: 900;
+  line-height: 1;
+  color: #d4f0e8;
+}
+
+.date-block-side .date-info span {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #1a6b5a;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.date-block-side .date-chinese {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a6b5a;
+  letter-spacing: 2px;
 }
