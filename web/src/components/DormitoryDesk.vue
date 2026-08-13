@@ -80,6 +80,29 @@ const slotInfo: Record<string, { name: string, end: string }> = {
 // 星期
 const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 
+// 查找最接近的时间段
+function findClosestSlot(timeStr: string): string | null {
+  const time = timeStr.substring(0, 5)
+  const [hours, minutes] = time.split(':').map(Number)
+  const timeMinutes = hours * 60 + minutes
+  
+  let closestSlot = null
+  let minDiff = Infinity
+  
+  for (const slot of timeSlots) {
+    const [slotHours, slotMinutes] = slot.split(':').map(Number)
+    const slotTimeMinutes = slotHours * 60 + slotMinutes
+    const diff = Math.abs(timeMinutes - slotTimeMinutes)
+    
+    if (diff < minDiff && diff <= 30) { // 允许30分钟的误差
+      minDiff = diff
+      closestSlot = slot
+    }
+  }
+  
+  return closestSlot
+}
+
 // 将事件转换为表格数据
 const timetableGrid = computed(() => {
   const grid: Record<string, Record<string, any>> = {}
@@ -95,10 +118,10 @@ const timetableGrid = computed(() => {
   events.value.forEach(event => {
     const day = event.day_of_week || getDayOfWeek(event.starts_at)
     const startTime = formatTime(event.starts_at)
-    const timeKey = startTime.substring(0, 5)
+    const closestSlot = findClosestSlot(startTime)
     
-    if (grid[day] && grid[day][timeKey] !== undefined) {
-      grid[day][timeKey] = {
+    if (closestSlot && grid[day] && grid[day][closestSlot] === null) {
+      grid[day][closestSlot] = {
         title: event.title,
         location: event.location,
         teacher: event.teacher,
@@ -110,9 +133,9 @@ const timetableGrid = computed(() => {
   
   // 填充自定义行程
   customEvents.value.forEach(event => {
-    const timeKey = event.startTime.substring(0, 5)
-    if (grid[event.day] && grid[event.day][timeKey] !== undefined) {
-      grid[event.day][timeKey] = {
+    const closestSlot = findClosestSlot(event.startTime)
+    if (closestSlot && grid[event.day] && grid[event.day][closestSlot] === null) {
+      grid[event.day][closestSlot] = {
         title: event.title,
         location: event.location,
         endTime: event.endTime,
