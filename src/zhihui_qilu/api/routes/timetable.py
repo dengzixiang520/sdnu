@@ -2,6 +2,7 @@
 
 import json
 import io
+import re
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
@@ -20,11 +21,113 @@ class TimetableEvent(BaseModel):
     teacher: str = ""
 
 
+def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
+    """Parse PDF timetable by directly reading table structure."""
+    import pdfplumber
+    
+    # 节次时间映射
+    slot_times = {
+        '1': ('08:20', '09:55'),
+        '2': ('08:20', '09:55'),
+        '3': ('10:10', '11:45'),
+        '4': ('10:10', '11:45'),
+        '5': ('14:00', '15:35'),
+        '6': ('14:00', '15:35'),
+        '7': ('15:50', '17:25'),
+        '8': ('15:50', '17:25'),
+        '9': ('19:00', '20:35'),
+        '10': ('19:00', '20:35')
+    }
+    
+    # 星期映射（列索引 -> 星期几）
+    day_map = {
+        2: '周一', 3: '周二', 4: '周三', 5: '周四', 6: '周五', 7: '周六', 8: '周日'
+    }
+    
+    events = []
+    seen = set()  # 去重
+    
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        for page in pdf.pages:
+            tables = page.extract_tables()
+            
+            for table in tables:
+                for row in table:
+                    if not row or len(row) < 3:
+                        continue
+                    
+                    # 获取节次信息
+                    slot = str(row[1]).strip() if row[1] else ''
+                    if slot not in slot_times:
+                        continue
+                    
+                    start_time, end_time = slot_times[slot]
+                    
+                    # 遍历星期列
+                    for col_idx in range(2, min(len(row), 9)):
+                        cell = row[col_idx]
+                        if not cell or len(str(cell).strip()) < 5:
+                            continue
+                        
+                        cell_text = str(cell)
+                        
+                        # 提取课程名称
+                        title = ''
+                        if '★' in cell_text:
+                            title = cell_text.split('★')[0].strip()
+                        else:
+                            lines = cell_text.split('\n')
+                            title = lines[0].strip()
+                        
+                        # 清理课程名称
+                        title = re.sub(r'\s+', ' ', title).strip()
+                        if not title or len(title) < 2:
+                            continue
+                        
+                        # 提取教师
+                        teacher = ''
+                        if '教师:' in cell_text:
+                            teacher_part = cell_text.split('教师:')[1]
+                            if '/' in teacher_part:
+                                teacher = teacher_part.split('/')[0].strip()
+                            else:
+                                teacher = teacher_part.split('\n')[0].strip()
+                            # 清理教师名称
+                            teacher = re.sub(r'教学班.*', '', teacher).strip()
+                        
+                        # 提取地点
+                        location = ''
+                        if '场地:' in cell_text:
+                            location_part = cell_text.split('场地:')[1]
+                            if '/' in location_part:
+                                location = location_part.split('/')[0].strip()
+                            else:
+                                location = location_part.split('\n')[0].strip()
+                        
+                        day = day_map.get(col_idx, '周一')
+                        
+                        # 去重
+                        key = f"{day}_{title}"
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        
+                        events.append({
+                            'title': title,
+                            'starts_at': f'2026-09-01T{start_time}:00',
+                            'ends_at': f'2026-09-01T{end_time}:00',
+                            'location': location,
+                            'day_of_week': day,
+                            'teacher': teacher
+                        })
+    
+    return events
+
+
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
-    """Extract text from PDF file using pdfplumber for better Chinese support."""
+    """Extract text from PDF file using pdfplumber."""
     try:
         import pdfplumber
-        import io
         
         text_parts = []
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
@@ -32,15 +135,6 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
                 text = page.extract_text()
                 if text:
                     text_parts.append(text)
-                
-                # 如果文本提取失败，尝试提取表格
-                if not text:
-                    tables = page.extract_tables()
-                    for table in tables:
-                        for row in table:
-                            row_text = " ".join([str(cell) if cell else "" for cell in row])
-                            if row_text.strip():
-                                text_parts.append(row_text)
         
         return "\n".join(text_parts)
     except Exception as e:
@@ -74,48 +168,31 @@ async def parse_with_deepseek(content: str, provider: Any) -> list[dict[str, str
     """Use DeepSeek to parse timetable content."""
     from zhihui_qilu.ai.provider import ChatMessage
     
-    system_prompt = """你是一个课表解析助手。请从用户提供的文本中提取课程信息。
+    system_prompt = """你是一个课表解析助手。请从用户提供的课表数据中提取课程信息。
 
-【重要规则】
-1. title字段必须是具体的课程名称（如"高等数学"、"英语听说"、"数据结构"），绝对不能是"课程名称"、"课程1"这样的占位符
-2. 如果文本中包含"高等数学"、"英语"、"数据结构"等课程名，必须原样提取
-3. 如果实在无法识别课程名，使用"未知课程"
-4. teacher字段提取教师姓名，如果无法识别则留空字符串
-5. location字段提取教室/地点信息
-6. day_of_week必须是：周一、周二、周三、周四、周五、周六、周日
-7. 如果没有明确日期，使用2026年9月第一周
-8. 注意：一个课程可能占多个节次（如3-4节），需要为每个节次创建单独的记录
+【节次时间对应】
+- 第1-2节：08:20-09:55
+- 第3-4节：10:10-11:45
+- 第5-6节：14:00-15:35
+- 第7-8节：15:50-17:25
+- 第9-10节：19:00-20:35
 
-请返回JSON数组格式，示例：
-```json
-[
-  {
-    "title": "高等数学",
-    "starts_at": "2026-09-01T08:20:00",
-    "ends_at": "2026-09-01T09:05:00",
-    "location": "A101",
-    "day_of_week": "周一",
-    "teacher": "张教授"
-  }
-]
-```
+【提取规则】
+1. 课程名称：提取★前面的文字
+2. 星期几：根据课程在表格中的列位置确定
+3. 地点：提取"场地:"后面的内容
+4. 教师：提取"教师:"后面的内容
+5. 日期：使用2026年9月第一周
 
-只返回JSON数组，不要返回其他任何文字。"""
-
-    user_message = f"""请解析以下课表内容，提取每门课程的真实名称、时间、地点和教师：
-
-{content}
-
-注意：title字段必须是真实的课程名称，不能是"课程名称"或"课程1"这样的占位符！"""
+只返回JSON数组格式。"""
 
     messages = [
         ChatMessage(role="system", content=system_prompt),
-        ChatMessage(role="user", content=user_message)
+        ChatMessage(role="user", content=f"请解析以下课表内容：\n\n{content}")
     ]
     
     try:
         response = await provider.complete(messages, temperature=0.1)
-        # 清理响应，提取JSON
         response = response.strip()
         if response.startswith("```json"):
             response = response[7:]
@@ -127,29 +204,13 @@ async def parse_with_deepseek(content: str, provider: Any) -> list[dict[str, str
         
         events = json.loads(response)
         
-        # 验证并修复每个事件
         for event in events:
-            # 确保title不为空或占位符
-            if not event.get("title") or event["title"] in ["课程名称", "课程", "未知", ""]:
+            if not event.get("title"):
                 event["title"] = "未知课程"
-            
-            # 确保day_of_week有效
             if event.get("day_of_week") not in ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]:
-                # 尝试从starts_at推断
-                try:
-                    from datetime import datetime
-                    dt = datetime.fromisoformat(event["starts_at"].replace("Z", "+00:00"))
-                    days = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-                    event["day_of_week"] = days[dt.weekday()]
-                except:
-                    event["day_of_week"] = "周一"
+                event["day_of_week"] = "周一"
         
         return events
-    except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"AI返回格式错误: {str(e)}"
-        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -162,13 +223,22 @@ async def upload_timetable(
     request: Request,
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
-    """Upload and parse a timetable file using AI."""
+    """Upload and parse a timetable file."""
     try:
         content_bytes = await file.read()
         filename = file.filename or ""
         file_ext = filename.lower().split(".")[-1] if "." in filename else ""
         
         if file_ext == "pdf":
+            # 优先使用表格解析
+            events = parse_pdf_timetable(content_bytes)
+            if events:
+                return {
+                    "success": True,
+                    "message": f"成功从 {filename} 解析 {len(events)} 个课程",
+                    "events": events
+                }
+            # 如果表格解析失败，使用文本解析+AI
             content = extract_text_from_pdf(content_bytes)
         elif file_ext in ["xlsx", "xls"]:
             content = extract_text_from_excel(content_bytes)
@@ -205,13 +275,8 @@ async def upload_timetable(
     if not provider.available:
         return {
             "success": True,
-            "message": f"当前为离线模式，已解析文件：{filename}。请配置API Key以使用AI解析。",
-            "events": [
-                {"title": "高等数学", "starts_at": "2026-09-01T08:20:00", "ends_at": "2026-09-01T09:05:00", "location": "A101", "day_of_week": "周一", "teacher": "张教授"},
-                {"title": "数据结构", "starts_at": "2026-09-01T14:00:00", "ends_at": "2026-09-01T14:45:00", "location": "B202", "day_of_week": "周一", "teacher": "李老师"},
-                {"title": "英语听说", "starts_at": "2026-09-02T10:10:00", "ends_at": "2026-09-02T10:55:00", "location": "C305", "day_of_week": "周二", "teacher": "王老师"},
-                {"title": "Python程序设计", "starts_at": "2026-09-03T15:50:00", "ends_at": "2026-09-03T16:35:00", "location": "D401", "day_of_week": "周三", "teacher": "赵教授"},
-            ]
+            "message": f"当前为离线模式，已解析文件：{filename}。",
+            "events": []
         }
     
     events = await parse_with_deepseek(content, provider)
@@ -243,11 +308,8 @@ async def parse_text_timetable(
     if not provider.available:
         return {
             "success": True,
-            "message": "当前为离线模式，返回示例课表数据。",
-            "events": [
-                {"title": "高等数学", "starts_at": "2026-09-01T08:20:00", "ends_at": "2026-09-01T09:05:00", "location": "A101", "day_of_week": "周一", "teacher": "张教授"},
-                {"title": "数据结构", "starts_at": "2026-09-01T14:00:00", "ends_at": "2026-09-01T14:45:00", "location": "B202", "day_of_week": "周一", "teacher": "李老师"},
-            ]
+            "message": "当前为离线模式。",
+            "events": []
         }
     
     events = await parse_with_deepseek(content, provider)
