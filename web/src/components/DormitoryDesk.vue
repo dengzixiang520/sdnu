@@ -261,7 +261,7 @@ function getDayOfWeek(dateStr: string) {
             <input 
               ref="fileInput"
               type="file" 
-              accept=".txt,.csv,.xlsx,.xls,.ics"
+              accept=".txt,.csv,.xlsx,.xls,.ics,.pdf"
               style="display: none"
               @change="handleFileSelect"
             >
@@ -269,7 +269,7 @@ function getDayOfWeek(dateStr: string) {
             <p class="upload-text">
               {{ uploadProgress || '点击或拖拽文件到此处上传' }}
             </p>
-            <p class="upload-hint">支持 .txt .csv .xlsx .xls .ics 格式</p>
+            <p class="upload-hint">支持 .txt .csv .xlsx .xls .ics .pdf 格式</p>
           </div>
         </div>
         

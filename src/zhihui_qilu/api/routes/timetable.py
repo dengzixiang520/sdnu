@@ -1,6 +1,7 @@
 ﻿"""File upload and AI-powered timetable parsing API routes."""
 
 import json
+import io
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
@@ -23,6 +24,44 @@ class ParseResponse(BaseModel):
     success: bool
     message: str
     events: list[TimetableEvent] = []
+
+
+def extract_text_from_pdf(pdf_bytes: bytes) -> str:
+    """Extract text from PDF file."""
+    try:
+        import PyPDF2
+        pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
+        text_parts = []
+        for page in pdf_reader.pages:
+            text = page.extract_text()
+            if text:
+                text_parts.append(text)
+        return "\n".join(text_parts)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"PDF解析失败: {str(e)}"
+        )
+
+
+def extract_text_from_excel(excel_bytes: bytes) -> str:
+    """Extract text from Excel file."""
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), read_only=True)
+        text_parts = []
+        for sheet in wb.worksheets:
+            for row in sheet.iter_rows(values_only=True):
+                row_text = " ".join([str(cell) if cell else "" for cell in row])
+                if row_text.strip():
+                    text_parts.append(row_text)
+        wb.close()
+        return "\n".join(text_parts)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Excel解析失败: {str(e)}"
+        )
 
 
 async def parse_with_deepseek(content: str, provider: Any) -> list[dict[str, str]]:
@@ -74,32 +113,42 @@ async def upload_timetable(
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
     """Upload and parse a timetable file using AI."""
-    # 检查文件类型
-    allowed_types = [
-        "text/plain",
-        "text/csv",
-        "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "text/calendar",
-        "application/octet-stream",
-    ]
-    
     # 读取文件内容
     try:
         content_bytes = await file.read()
+        filename = file.filename or ""
+        file_ext = filename.lower().split(".")[-1] if "." in filename else ""
         
-        # 尝试解码为文本
-        try:
-            content = content_bytes.decode("utf-8")
-        except UnicodeDecodeError:
+        # 根据文件类型提取文本
+        if file_ext == "pdf":
+            content = extract_text_from_pdf(content_bytes)
+        elif file_ext in ["xlsx", "xls"]:
+            content = extract_text_from_excel(content_bytes)
+        elif file_ext == "csv":
             try:
-                content = content_bytes.decode("gbk")
+                content = content_bytes.decode("utf-8")
             except UnicodeDecodeError:
-                content = content_bytes.decode("gb2312")
+                content = content_bytes.decode("gbk")
+        else:  # txt, ics 等文本文件
+            try:
+                content = content_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                try:
+                    content = content_bytes.decode("gbk")
+                except UnicodeDecodeError:
+                    content = content_bytes.decode("gb2312")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"文件读取失败: {str(e)}"
+        )
+    
+    if not content.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="文件内容为空或无法解析"
         )
     
     # 获取AI provider
@@ -110,7 +159,7 @@ async def upload_timetable(
         # 使用离线模式，返回示例数据
         return {
             "success": True,
-            "message": "当前为离线模式，返回示例课表数据。请配置API Key以使用AI解析。",
+            "message": f"当前为离线模式，返回示例课表数据。已解析文件：{filename}。请配置API Key以使用AI解析。",
             "events": [
                 {"title": "高等数学", "starts_at": "2026-09-01T08:00:00", "ends_at": "2026-09-01T09:40:00", "location": "A101", "day_of_week": "周一"},
                 {"title": "数据结构", "starts_at": "2026-09-01T14:00:00", "ends_at": "2026-09-01T15:40:00", "location": "B202", "day_of_week": "周一"},
@@ -124,7 +173,7 @@ async def upload_timetable(
     
     return {
         "success": True,
-        "message": f"成功解析 {len(events)} 个课程",
+        "message": f"成功从 {filename} 解析 {len(events)} 个课程",
         "events": events
     }
 
