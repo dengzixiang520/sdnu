@@ -76,7 +76,7 @@ onMounted(() => {
   loadSavedTimetable()
 })
 
-interface Event { 
+interface TimetableEvent { 
   title: string
   starts_at: string
   ends_at: string
@@ -91,7 +91,7 @@ interface Transfer {
   amount: string 
 }
 
-interface CustomEvent {
+interface CustomScheduleEvent {
   id: number
   title: string
   day: string
@@ -101,7 +101,7 @@ interface CustomEvent {
 }
 
 const timetable = ref('周一 08:00-09:40 高等数学 A101 张教授\n周一 14:00-15:40 数据结构 B202 李老师\n周二 10:00-11:40 英语听说 C305 王老师\n周三 14:00-15:40 Python程序设计 D401 赵教授')
-const events = ref<Event[]>([])
+const events = ref<TimetableEvent[]>([])
 const parseMessage = ref('')
 const amount = ref('36.00')
 const payer = ref('我')
@@ -113,9 +113,9 @@ const loading = ref(false)
 const error = ref('')
 
 // 自定义行程
-const customEvents = ref<CustomEvent[]>([])
+const customEvents = ref<CustomScheduleEvent[]>([])
 const showAddForm = ref(false)
-const newEvent = ref<CustomEvent>({
+const newEvent = ref<CustomScheduleEvent>({
   id: 0,
   title: '',
   day: '周一',
@@ -292,7 +292,7 @@ async function uploadFile(file: File) {
   }
 }
 
-function handleFileSelect(event: Event) {
+function handleFileSelect(event: globalThis.Event) {
   const input = event.target as HTMLInputElement
   if (input.files && input.files.length > 0) {
     uploadFile(input.files[0])
