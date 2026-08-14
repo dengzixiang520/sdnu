@@ -1645,3 +1645,340 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   color: #397f72;
   border: 1px solid #c8e6d8;
 }
+/* ==================== 积分中心样式 ==================== */
+.points-page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.points-header {
+  margin-bottom: 24px;
+}
+
+.points-header h1 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 28px;
+  color: #172b2a;
+  margin: 0 0 8px 0;
+}
+
+.points-header p {
+  color: #667572;
+  margin: 0;
+}
+
+/* 积分概览卡片 */
+.points-overview {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.overview-card {
+  background: rgba(255, 254, 248, 0.98);
+  border: 1px solid #d8ded4;
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  transition: all 0.2s;
+}
+
+.overview-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(25, 58, 55, 0.1);
+}
+
+.overview-card.main {
+  background: linear-gradient(135deg, #173f43, #2d6659);
+  color: white;
+  border: none;
+}
+
+.overview-card.main .card-label,
+.overview-card.main .card-value {
+  color: white;
+}
+
+.card-icon {
+  color: #397f72;
+}
+
+.overview-card.main .card-icon {
+  color: #d4f0e8;
+}
+
+.card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.card-label {
+  font-size: 13px;
+  color: #667572;
+}
+
+.card-value {
+  font-size: 32px;
+  font-weight: 800;
+  color: #172b2a;
+}
+
+.card-value.small {
+  font-size: 24px;
+}
+
+.card-level {
+  margin-left: auto;
+  padding: 6px 16px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* 每日打卡 */
+.checkin-section {
+  margin-bottom: 24px;
+}
+
+.checkin-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: #397f72;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.checkin-btn:hover:not(:disabled) {
+  background: #2d6659;
+}
+
+.checkin-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 标签页 */
+.points-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  border-bottom: 2px solid #eef1ea;
+  padding-bottom: 12px;
+}
+
+.points-tabs button {
+  padding: 10px 20px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #667572;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.points-tabs button.active {
+  background: #397f72;
+  color: white;
+}
+
+.points-tabs button:hover:not(.active) {
+  background: #eef1ea;
+}
+
+/* 排行榜 */
+.leaderboard-section {
+  background: rgba(255, 254, 248, 0.98);
+  border: 1px solid #d8ded4;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.leaderboard-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #eef1ea;
+  transition: background 0.2s;
+}
+
+.leaderboard-item:last-child {
+  border-bottom: none;
+}
+
+.leaderboard-item:hover {
+  background: #f5f4eb;
+}
+
+.leaderboard-item.is-me {
+  background: #e8f4f0;
+  font-weight: 600;
+}
+
+.rank {
+  width: 36px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: #172b2a;
+}
+
+.name {
+  flex: 1;
+  font-size: 15px;
+  color: #172b2a;
+}
+
+.level {
+  padding: 4px 12px;
+  background: #eef1ea;
+  border-radius: 12px;
+  font-size: 12px;
+  color: #667572;
+}
+
+.points {
+  font-weight: 700;
+  color: #397f72;
+  min-width: 80px;
+  text-align: right;
+}
+
+/* 徽章 */
+.badges-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.badge-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  background: rgba(255, 254, 248, 0.98);
+  border: 1px solid #d8ded4;
+  border-radius: 12px;
+  transition: all 0.2s;
+}
+
+.badge-item.earned {
+  border-color: #397f72;
+  background: #f0f7f4;
+}
+
+.badge-icon {
+  font-size: 32px;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f4eb;
+  border-radius: 12px;
+}
+
+.badge-item.earned .badge-icon {
+  background: #e8f4f0;
+}
+
+.badge-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.badge-info strong {
+  font-size: 14px;
+  color: #172b2a;
+}
+
+.badge-info small {
+  font-size: 12px;
+  color: #667572;
+}
+
+.badge-status {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-status.earned {
+  background: #e8f4f0;
+  color: #397f72;
+}
+
+.badge-status.locked {
+  background: #f5f4eb;
+  color: #999;
+}
+
+/* 积分记录 */
+.records-section {
+  background: rgba(255, 254, 248, 0.98);
+  border: 1px solid #d8ded4;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.record-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid #eef1ea;
+}
+
+.record-item:last-child {
+  border-bottom: none;
+}
+
+.record-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.record-source {
+  font-size: 13px;
+  font-weight: 600;
+  color: #172b2a;
+}
+
+.record-detail {
+  font-size: 12px;
+  color: #667572;
+}
+
+.record-points {
+  font-size: 18px;
+  font-weight: 700;
+  color: #397f72;
+}
+
+.empty-state {
+  padding: 40px;
+  text-align: center;
+  color: #999;
+  font-size: 15px;
+}

@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   PhBookOpenText, PhCalendarDots, PhFileText, PhHeart, PhHouse,
-  PhList, PhRocketLaunch, PhX,
+  PhList, PhRocketLaunch, PhTrophy, PhX,
 } from '@phosphor-icons/vue'
 
 const route = useRoute()
@@ -16,6 +16,7 @@ const links = [
   { path: '/academic', icon: PhBookOpenText, label: '学习成长', hint: 'Study studio' },
   { path: '/innovation', icon: PhRocketLaunch, label: '双创孵化', hint: 'Build & compete' },
   { path: '/documents', icon: PhFileText, label: '文档工坊', hint: 'Format lab' },
+  { path: '/points', icon: PhTrophy, label: '积分中心', hint: 'Points & Badges' },
 ]
 
 function active(path: string) {

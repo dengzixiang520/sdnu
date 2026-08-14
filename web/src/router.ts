@@ -1,4 +1,4 @@
-import { createRouter, createWebHashHistory } from 'vue-router'
+﻿import { createRouter, createWebHashHistory } from 'vue-router'
 import HomeDashboard from './components/HomeDashboard.vue'
 import WellbeingSpace from './components/WellbeingSpace.vue'
 import DormitoryDesk from './components/DormitoryDesk.vue'
@@ -8,6 +8,7 @@ import InterviewRoom from './components/InterviewRoom.vue'
 import StudyPlan from './components/StudyPlan.vue'
 import InnovationLab from './components/InnovationLab.vue'
 import DocumentWorkshop from './components/DocumentWorkshop.vue'
+import PointsCenter from './components/PointsCenter.vue'
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -21,6 +22,7 @@ export const router = createRouter({
     { path: '/academic/plan', component: StudyPlan, meta: { section: '学习成长', title: '学习计划' } },
     { path: '/innovation', component: InnovationLab, meta: { section: '创新实践', title: '竞赛孵化' } },
     { path: '/documents', component: DocumentWorkshop, meta: { section: '效率工具', title: '文档工坊' } },
+    { path: '/points', component: PointsCenter, meta: { section: '成长激励', title: '积分中心' } },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

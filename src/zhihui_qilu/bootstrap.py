@@ -14,6 +14,7 @@ from zhihui_qilu.skills.innovation import InnovationSkill
 from zhihui_qilu.skills.document_engine import DocumentEngineSkill
 from zhihui_qilu.skills.wellbeing import WellbeingSkill
 from zhihui_qilu.competition_service import CompetitionService
+from zhihui_qilu.points_service import PointsService
 from zhihui_qilu.wellbeing_service import WellbeingService
 
 
@@ -40,4 +41,5 @@ class PlatformContainer:
         self.academic = AcademicService(self.memory, settings)
         self.innovation = InnovationSkill()
         self.competition_service = CompetitionService("./data")
+        self.points_service = PointsService("./data")
         self.router = SuperAgentRouter(self.security_gateway, [WellbeingSkill(self.wellbeing), DormitorySkill(), AcademicSkill(self.academic), self.innovation, DocumentEngineSkill()])
