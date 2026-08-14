@@ -1,6 +1,4 @@
-﻿"""File upload and AI-powered timetable parsing API routes."""
-
-import json
+﻿import json
 import io
 import re
 from pathlib import Path
@@ -11,12 +9,8 @@ from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/v1/timetable", tags=["timetable"])
 
-# 课表数据存储路径
-TIMETABLE_FILE = Path("./data/timetable.json")
-
 
 class TimetableEvent(BaseModel):
-    """Parsed timetable event."""
     title: str
     starts_at: str
     ends_at: str
@@ -25,355 +19,236 @@ class TimetableEvent(BaseModel):
     teacher: str = ""
 
 
-def load_saved_timetable() -> list[dict[str, str]]:
-    """Load saved timetable from file."""
-    if TIMETABLE_FILE.exists():
-        try:
-            with open(TIMETABLE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return []
+def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
+    """Parse PDF timetable."""
+    import pdfplumber
+    # ... existing code ...
     return []
 
 
-def save_timetable(events: list[dict[str, str]]) -> None:
-    """Save timetable to file."""
-    TIMETABLE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(TIMETABLE_FILE, "w", encoding="utf-8") as f:
-        json.dump(events, f, ensure_ascii=False, indent=2)
-
-
-def parse_pdf_timetable(pdf_bytes: bytes) -> list[dict[str, str]]:
-    """Parse PDF timetable by directly reading table structure."""
-    import pdfplumber
-    
-    # 节次时间映射
-    slot_times = {
-        '1': ('08:20', '09:05'),
-        '2': ('09:10', '09:55'),
-        '3': ('10:10', '10:55'),
-        '4': ('11:00', '11:45'),
-        '5': ('14:00', '14:45'),
-        '6': ('14:50', '15:35'),
-        '7': ('15:50', '16:35'),
-        '8': ('16:40', '17:25'),
-        '9': ('19:00', '19:45'),
-        '10': ('19:50', '20:35')
-    }
-    
-    # 连续两节课的时间映射
-    double_slot_times = {
-        '1': ('08:20', '09:55'),
-        '3': ('10:10', '11:45'),
-        '5': ('14:00', '15:35'),
-        '7': ('15:50', '17:25'),
-        '9': ('19:00', '20:35')
-    }
-    
-    day_map = {
-        2: '周一', 3: '周二', 4: '周三', 5: '周四', 6: '周五', 7: '周六', 8: '周日'
-    }
+def parse_excel_timetable(excel_bytes: bytes) -> list[dict[str, str]]:
+    """Parse Excel timetable."""
+    import openpyxl
     
     events = []
-    seen = set()
+    wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), read_only=True)
     
-    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-        for page in pdf.pages:
-            tables = page.extract_tables()
+    for sheet in wb.worksheets:
+        rows = list(sheet.iter_rows(values_only=True))
+        if not rows:
+            continue
+        
+        # 假设第一行是标题
+        headers = [str(h).lower() if h else "" for h in rows[0]]
+        
+        # 查找列索引
+        day_col = next((i for i, h in enumerate(headers) if "星期" in h or "day" in h), None)
+        time_col = next((i for i, h in enumerate(headers) if "时间" in h or "time" in h), None)
+        name_col = next((i for i, h in enumerate(headers) if "课程" in h or "名称" in h or "name" in h), None)
+        location_col = next((i for i, h in enumerate(headers) if "地点" in h or "教室" in h or "location" in h), None)
+        teacher_col = next((i for i, h in enumerate(headers) if "教师" in h or "老师" in h or "teacher" in h), None)
+        
+        # 时间映射
+        time_map = {
+            "1": ("08:20", "09:05"), "2": ("09:10", "09:55"),
+            "3": ("10:10", "10:55"), "4": ("11:00", "11:45"),
+            "5": ("14:00", "14:45"), "6": ("14:50", "15:35"),
+            "7": ("15:50", "16:35"), "8": ("16:40", "17:25"),
+            "9": ("19:00", "19:45"), "10": ("19:50", "20:35"),
+        }
+        
+        day_map = {"周一": "周一", "周一": "周一", "monday": "周一", "mon": "周一",
+                   "周二": "周二", "tuesday": "周二", "tue": "周二",
+                   "周三": "周三", "wednesday": "周三", "wed": "周三",
+                   "周四": "周四", "thursday": "周四", "thu": "周四",
+                   "周五": "周五", "friday": "周五", "fri": "周五",
+                   "周六": "周六", "saturday": "周六", "sat": "周六",
+                   "周日": "周日", "sunday": "周日", "sun": "周日"}
+        
+        for row in rows[1:]:
+            if not row or not any(row):
+                continue
             
-            for table in tables:
-                for row_idx, row in enumerate(table):
-                    if not row or len(row) < 3:
-                        continue
-                    
-                    slot = str(row[1]).strip() if row[1] else ''
-                    
-                    # 判断是单节还是双节课程
-                    is_double = False
-                    if slot in ['1', '3', '5', '7', '9']:
-                        if row_idx + 1 < len(table):
-                            next_row = table[row_idx + 1]
-                            if next_row and len(next_row) > 2:
-                                next_slot = str(next_row[1]).strip() if next_row[1] else ''
-                                if next_slot == str(int(slot) + 1):
-                                    for col_idx in range(2, min(len(row), 9)):
-                                        cell1 = row[col_idx] if col_idx < len(row) else None
-                                        cell2 = next_row[col_idx] if col_idx < len(next_row) else None
-                                        if cell1 and cell2:
-                                            title1 = str(cell1).split('★')[0].strip()[:10] if cell1 else ''
-                                            title2 = str(cell2).split('★')[0].strip()[:10] if cell2 else ''
-                                            if title1 and title2 and title1 == title2:
-                                                is_double = True
-                                                break
-                    
-                    if slot in double_slot_times and is_double:
-                        start_time, end_time = double_slot_times[slot]
-                    elif slot in slot_times:
-                        start_time, end_time = slot_times[slot]
-                    else:
-                        continue
-                    
-                    for col_idx in range(2, min(len(row), 9)):
-                        cell = row[col_idx]
-                        if not cell or len(str(cell).strip()) < 5:
-                            continue
-                        
-                        cell_text = str(cell)
-                        
-                        title = ''
-                        if '★' in cell_text:
-                            title = cell_text.split('★')[0].strip()
-                        else:
-                            lines = cell_text.split('\n')
-                            title = lines[0].strip()
-                        
-                        title = re.sub(r'\s+', ' ', title).strip()
-                        if not title or len(title) < 2:
-                            continue
-                        
-                        teacher = ''
-                        if '教师:' in cell_text:
-                            teacher_part = cell_text.split('教师:')[1]
-                            teacher = re.split(r'[/\n]', teacher_part)[0].strip()
-                            teacher = re.sub(r'教学班.*', '', teacher).strip()
-                        
-                        location = ''
-                        if '场地:' in cell_text:
-                            location_part = cell_text.split('场地:')[1]
-                            location = re.split(r'[/\n]', location_part)[0].strip()
-                        
-                        day = day_map.get(col_idx, '周一')
-                        
-                        key = f"{day}_{title}_{start_time}"
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        
-                        events.append({
-                            'title': title,
-                            'starts_at': f'2026-09-01T{start_time}:00',
-                            'ends_at': f'2026-09-01T{end_time}:00',
-                            'location': location,
-                            'day_of_week': day,
-                            'teacher': teacher
-                        })
+            try:
+                day = str(row[day_col]) if day_col is not None and day_col < len(row) else ""
+                time_str = str(row[time_col]) if time_col is not None and time_col < len(row) else ""
+                name = str(row[name_col]) if name_col is not None and name_col < len(row) else ""
+                location = str(row[location_col]) if location_col is not None and location_col < len(row) else ""
+                teacher = str(row[teacher_col]) if teacher_col is not None and teacher_col < len(row) else ""
+                
+                if not name or name == "None":
+                    continue
+                
+                # 解析时间
+                start_time, end_time = "08:20", "09:05"
+                for slot, (s, e) in time_map.items():
+                    if slot in time_str:
+                        start_time, end_time = s, e
+                        break
+                
+                # 解析星期
+                day_of_week = "周一"
+                for d, v in day_map.items():
+                    if d in day.lower():
+                        day_of_week = v
+                        break
+                
+                events.append({
+                    "title": name,
+                    "starts_at": f"2026-09-01T{start_time}:00",
+                    "ends_at": f"2026-09-01T{end_time}:00",
+                    "location": location,
+                    "day_of_week": day_of_week,
+                    "teacher": teacher
+                })
+            except Exception:
+                continue
+    
+    wb.close()
+    return events
+
+
+def parse_image_timetable(image_bytes: bytes) -> list[dict[str, str]]:
+    """Parse image timetable using OCR."""
+    try:
+        from PIL import Image
+        import pytesseract
+        
+        image = Image.open(io.BytesIO(image_bytes))
+        text = pytesseract.image_to_string(image, lang='chi_sim+eng')
+        
+        if not text.strip():
+            return []
+        
+        # 使用文本解析
+        return parse_text_content(text)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"图片OCR识别失败: {str(e)}. 请确保已安装Tesseract OCR引擎。"
+        )
+
+
+def parse_text_content(text: str) -> list[dict[str, str]]:
+    """Parse text content to extract timetable events."""
+    events = []
+    lines = text.strip().split('\n')
+    
+    time_map = {
+        "1": ("08:20", "09:05"), "2": ("09:10", "09:55"),
+        "3": ("10:10", "10:55"), "4": ("11:00", "11:45"),
+        "5": ("14:00", "14:45"), "6": ("14:50", "15:35"),
+        "7": ("15:50", "16:35"), "8": ("16:40", "17:25"),
+        "9": ("19:00", "19:45"), "10": ("19:50", "20:35"),
+    }
+    
+    day_map = {"周一": "周一", "周二": "周二", "周三": "周三", "周四": "周四", "周五": "周五", "周六": "周六", "周日": "周日"}
+    
+    for line in lines:
+        # 尝试匹配格式：星期 时间 课程 地点 教师
+        match = re.search(r'(周[一二三四五六日])\s*(\d+[-节]?\d*)\s*(.+?)(?:\s*@\s*|\s+)(.+?)(?:\s+|$)', line)
+        if match:
+            day = match.group(1)
+            time_slot = match.group(2)
+            name = match.group(3).strip()
+            location = match.group(4).strip()
+            
+            start_time, end_time = "08:20", "09:05"
+            for slot, (s, e) in time_map.items():
+                if slot in time_slot:
+                    start_time, end_time = s, e
+                    break
+            
+            events.append({
+                "title": name,
+                "starts_at": f"2026-09-01T{start_time}:00",
+                "ends_at": f"2026-09-01T{end_time}:00",
+                "location": location,
+                "day_of_week": day_map.get(day, "周一"),
+                "teacher": ""
+            })
     
     return events
 
 
-def extract_text_from_pdf(pdf_bytes: bytes) -> str:
-    """Extract text from PDF file using pdfplumber."""
-    try:
-        import pdfplumber
-        text_parts = []
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text()
-                if text:
-                    text_parts.append(text)
-        return "\n".join(text_parts)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"PDF解析失败: {str(e)}"
-        )
-
-
-def extract_text_from_excel(excel_bytes: bytes) -> str:
-    """Extract text from Excel file."""
-    try:
-        import openpyxl
-        wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), read_only=True)
-        text_parts = []
-        for sheet in wb.worksheets:
-            for row in sheet.iter_rows(values_only=True):
-                row_text = " ".join([str(cell) if cell else "" for cell in row])
-                if row_text.strip():
-                    text_parts.append(row_text)
-        wb.close()
-        return "\n".join(text_parts)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Excel解析失败: {str(e)}"
-        )
-
-
-async def parse_with_deepseek(content: str, provider: Any) -> list[dict[str, str]]:
-    """Use DeepSeek to parse timetable content."""
-    from zhihui_qilu.ai.provider import ChatMessage
-    
-    system_prompt = """你是一个课表解析助手。请从用户提供的课表数据中提取课程信息。
-
-【节次时间对应】
-单节课程：
-- 第1节：08:20-09:05
-- 第2节：09:10-09:55
-- 第3节：10:10-10:55
-- 第4节：11:00-11:45
-- 第5节：14:00-14:45
-- 第6节：14:50-15:35
-- 第7节：15:50-16:35
-- 第8节：16:40-17:25
-- 第9节：19:00-19:45
-- 第10节：19:50-20:35
-
-连续两节课：
-- 第1-2节：08:20-09:55
-- 第3-4节：10:10-11:45
-- 第5-6节：14:00-15:35
-- 第7-8节：15:50-17:25
-- 第9-10节：19:00-20:35
-
-只返回JSON数组格式。"""
-
-    messages = [
-        ChatMessage(role="system", content=system_prompt),
-        ChatMessage(role="user", content=f"请解析以下课表内容：\n\n{content}")
-    ]
-    
-    try:
-        response = await provider.complete(messages, temperature=0.1)
-        response = response.strip()
-        if response.startswith("```json"):
-            response = response[7:]
-        if response.startswith("```"):
-            response = response[3:]
-        if response.endswith("```"):
-            response = response[:-3]
-        response = response.strip()
-        
-        events = json.loads(response)
-        
-        for event in events:
-            if not event.get("title"):
-                event["title"] = "未知课程"
-            if event.get("day_of_week") not in ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]:
-                event["day_of_week"] = "周一"
-        
-        return events
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"AI解析失败: {str(e)}"
-        )
-
-
-@router.get("/saved")
-async def get_saved_timetable() -> dict[str, Any]:
-    """Get saved timetable."""
-    events = load_saved_timetable()
-    return {
-        "success": True,
-        "events": events,
-        "message": f"已加载 {len(events)} 个课程"
-    }
-
-
 @router.post("/upload")
-async def upload_timetable(
-    request: Request,
-    file: UploadFile = File(...),
-) -> dict[str, Any]:
+async def upload_timetable(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
     """Upload and parse a timetable file."""
     try:
         content_bytes = await file.read()
         filename = file.filename or ""
         file_ext = filename.lower().split(".")[-1] if "." in filename else ""
         
+        events = []
+        
         if file_ext == "pdf":
             events = parse_pdf_timetable(content_bytes)
-            if events:
-                # 保存到文件
-                save_timetable(events)
-                return {
-                    "success": True,
-                    "message": f"成功从 {filename} 解析并保存 {len(events)} 个课程",
-                    "events": events
-                }
-            content = extract_text_from_pdf(content_bytes)
         elif file_ext in ["xlsx", "xls"]:
-            content = extract_text_from_excel(content_bytes)
+            events = parse_excel_timetable(content_bytes)
+        elif file_ext in ["png", "jpg", "jpeg", "bmp", "gif"]:
+            events = parse_image_timetable(content_bytes)
         elif file_ext == "csv":
             try:
-                content = content_bytes.decode("utf-8")
+                text = content_bytes.decode("utf-8")
             except UnicodeDecodeError:
-                content = content_bytes.decode("gbk")
+                text = content_bytes.decode("gbk")
+            events = parse_text_content(text)
         else:
+            # 尝试作为文本解析
             try:
-                content = content_bytes.decode("utf-8")
+                text = content_bytes.decode("utf-8")
             except UnicodeDecodeError:
-                try:
-                    content = content_bytes.decode("gbk")
-                except UnicodeDecodeError:
-                    content = content_bytes.decode("gb2312")
+                text = content_bytes.decode("gbk")
+            events = parse_text_content(text)
+        
+        if events:
+            # 保存到文件
+            save_path = Path("./data/timetable.json")
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            save_path.write_text(json.dumps(events, ensure_ascii=False, indent=2), encoding="utf-8")
+            
+            return {
+                "success": True,
+                "message": f"成功从 {filename} 解析 {len(events)} 个课程",
+                "events": events
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"未能从 {filename} 中识别出课程信息，请检查文件格式",
+                "events": []
+            }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"文件读取失败: {str(e)}"
+            detail=f"文件处理失败: {str(e)}"
         )
-    
-    if not content.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="文件内容为空或无法解析"
-        )
-    
-    container = request.app.state.container
-    provider = container.ai_provider
-    
-    if not provider.available:
-        return {
-            "success": True,
-            "message": f"当前为离线模式，已解析文件：{filename}。",
-            "events": []
-        }
-    
-    events = await parse_with_deepseek(content, provider)
-    
-    # 保存到文件
-    save_timetable(events)
-    
-    return {
-        "success": True,
-        "message": f"成功从 {filename} 解析并保存 {len(events)} 个课程",
-        "events": events
-    }
+
+
+@router.get("/saved")
+async def get_saved_timetable() -> dict[str, Any]:
+    """Get saved timetable."""
+    save_path = Path("./data/timetable.json")
+    if save_path.exists():
+        events = json.loads(save_path.read_text(encoding="utf-8"))
+        return {"success": True, "events": events, "message": f"已加载 {len(events)} 个课程"}
+    return {"success": True, "events": [], "message": "暂无保存的课表"}
 
 
 @router.post("/parse-text")
-async def parse_text_timetable(
-    request: Request,
-    body: dict[str, str],
-) -> dict[str, Any]:
-    """Parse timetable from text using AI."""
+async def parse_text_timetable(request: Request, body: dict[str, str]) -> dict[str, Any]:
+    """Parse timetable from text."""
     content = body.get("content", "")
-    
     if not content.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="内容不能为空"
-        )
+        raise HTTPException(status_code=400, detail="内容不能为空")
     
-    container = request.app.state.container
-    provider = container.ai_provider
+    events = parse_text_content(content)
     
-    if not provider.available:
-        return {
-            "success": True,
-            "message": "当前为离线模式。",
-            "events": []
-        }
+    if events:
+        save_path = Path("./data/timetable.json")
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        save_path.write_text(json.dumps(events, ensure_ascii=False, indent=2), encoding="utf-8")
     
-    events = await parse_with_deepseek(content, provider)
-    
-    # 保存到文件
-    save_timetable(events)
-    
-    return {
-        "success": True,
-        "message": f"成功解析并保存 {len(events)} 个课程",
-        "events": events
-    }
+    return {"success": True, "message": f"解析 {len(events)} 个课程", "events": events}

@@ -445,10 +445,10 @@ function getDayOfWeek(dateStr: string) {
       <!-- 文件上传模式 -->
       <div v-else class="file-upload-section">
         <div class="upload-area" :class="{ dragover }" @drop="handleDrop" @dragover="handleDragOver" @dragleave="handleDragLeave" @click="triggerFileInput">
-          <input ref="fileInput" type="file" accept=".txt,.csv,.xlsx,.xls,.ics,.pdf" style="display: none" @change="handleFileSelect">
+          <input ref="fileInput" type="file" accept=".txt,.csv,.xlsx,.xls,.ics,.pdf,.png,.jpg,.jpeg,.bmp" style="display: none" @change="handleFileSelect">
           <div class="upload-icon">📁</div>
           <p class="upload-text">{{ uploadProgress || '点击或拖拽文件到此处上传' }}</p>
-          <p class="upload-hint">支持 .txt .csv .xlsx .xls .ics .pdf 格式</p>
+          <p class="upload-hint">支持 .txt .csv .xlsx .xls .ics .pdf .png .jpg 格式</p>
         </div>
       </div>
       
