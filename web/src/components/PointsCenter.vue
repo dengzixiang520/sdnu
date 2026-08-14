@@ -34,7 +34,7 @@ interface PointsRecord {
 }
 
 const { identity } = useIdentity()
-const activeTab = ref<'overview' | 'leaderboard' | 'badges' | 'records'>('overview')
+const activeTab = ref('overview')
 const userPoints = ref<UserPoints | null>(null)
 const leaderboard = ref<UserPoints[]>([])
 const badges = ref<Badge[]>([])
@@ -51,45 +51,31 @@ async function fetchUserPoints() {
     if (data.success && data.data.user) {
       userPoints.value = data.data.user
     }
-  } catch (err) {
-    console.log('获取用户积分失败')
-  }
+  } catch (err) { console.log('获取用户积分失败') }
 }
 
 async function fetchLeaderboard() {
   try {
     const response = await fetch('/api/v1/points/leaderboard?limit=20')
     const data = await response.json()
-    if (data.success) {
-      leaderboard.value = data.data.leaderboard
-    }
-  } catch (err) {
-    console.log('获取排行榜失败')
-  }
+    if (data.success) leaderboard.value = data.data.leaderboard
+  } catch (err) { console.log('获取排行榜失败') }
 }
 
 async function fetchBadges() {
   try {
     const response = await fetch('/api/v1/points/badges')
     const data = await response.json()
-    if (data.success) {
-      badges.value = data.data.badges
-    }
-  } catch (err) {
-    console.log('获取徽章失败')
-  }
+    if (data.success) badges.value = data.data.badges
+  } catch (err) { console.log('获取徽章失败') }
 }
 
 async function fetchRecords() {
   try {
     const response = await fetch(`/api/v1/points/user/${currentUserId.value}/records`)
     const data = await response.json()
-    if (data.success) {
-      records.value = data.data.records
-    }
-  } catch (err) {
-    console.log('获取记录失败')
-  }
+    if (data.success) records.value = data.data.records
+  } catch (err) { console.log('获取记录失败') }
 }
 
 async function addCheckinPoints() {
@@ -101,11 +87,8 @@ async function addCheckinPoints() {
       await fetchUserPoints()
       await fetchRecords()
     }
-  } catch (err) {
-    console.log('打卡积分失败')
-  } finally {
-    loading.value = false
-  }
+  } catch (err) { console.log('打卡积分失败') }
+  finally { loading.value = false }
 }
 
 function getSourceLabel(source: string) {
@@ -191,6 +174,7 @@ onMounted(() => {
       <button :class="{ active: activeTab === 'leaderboard' }" @click="activeTab = 'leaderboard'">排行榜</button>
       <button :class="{ active: activeTab === 'badges' }" @click="activeTab = 'badges'">徽章</button>
       <button :class="{ active: activeTab === 'records' }" @click="activeTab = 'records'">积分记录</button>
+      <button :class="{ active: activeTab === 'rules' }" @click="activeTab = 'rules'">积分规则</button>
     </div>
 
     <!-- 排行榜 -->
@@ -227,6 +211,54 @@ onMounted(() => {
         <span class="record-points">+{{ record.points }}</span>
       </div>
       <div v-if="records.length === 0" class="empty-state">暂无积分记录</div>
+    </div>
+
+    <!-- 积分规则 -->
+    <div v-if="activeTab === 'rules'" class="rules-section">
+      <div class="rules-card">
+        <h3>🏆 竞赛获奖积分</h3>
+        <p>参加学校认定的各类竞赛并获奖，可获得相应积分：</p>
+        <div class="rules-table">
+          <div class="rules-row header"><span>奖项等级</span><span>获得积分</span><span>说明</span></div>
+          <div class="rules-row"><span>A1（国家级特等）</span><span class="points-val">100分</span><span>A类竞赛最高奖</span></div>
+          <div class="rules-row"><span>A2（国家级一等）</span><span class="points-val">80分</span><span>A类竞赛一等奖</span></div>
+          <div class="rules-row"><span>A3（国家级二等）</span><span class="points-val">60分</span><span>A类竞赛二等奖</span></div>
+          <div class="rules-row"><span>B1（国家级一等）</span><span class="points-val">50分</span><span>B类竞赛一等奖</span></div>
+          <div class="rules-row"><span>B2（国家级二等）</span><span class="points-val">40分</span><span>B类竞赛二等奖</span></div>
+          <div class="rules-row"><span>B3（国家级三等）</span><span class="points-val">30分</span><span>B类竞赛三等奖</span></div>
+          <div class="rules-row"><span>C1（省级一等）</span><span class="points-val">20分</span><span>省级竞赛一等奖</span></div>
+          <div class="rules-row"><span>C2（省级二等）</span><span class="points-val">15分</span><span>省级竞赛二等奖</span></div>
+          <div class="rules-row"><span>C3（省级三等）</span><span class="points-val">10分</span><span>省级竞赛三等奖</span></div>
+          <div class="rules-row"><span>D1（校级一等）</span><span class="points-val">8分</span><span>校级竞赛一等奖</span></div>
+          <div class="rules-row"><span>D2（校级二等）</span><span class="points-val">5分</span><span>校级竞赛二等奖</span></div>
+          <div class="rules-row"><span>D3（校级三等）</span><span class="points-val">3分</span><span>校级竞赛三等奖</span></div>
+        </div>
+      </div>
+
+      <div class="rules-card">
+        <h3>📅 日常打卡积分</h3>
+        <p>坚持每日心情打卡，养成良好习惯：</p>
+        <div class="rules-table">
+          <div class="rules-row header"><span>行为</span><span>获得积分</span><span>说明</span></div>
+          <div class="rules-row"><span>每日打卡</span><span class="points-val">5分</span><span>每天首次心情打卡</span></div>
+          <div class="rules-row"><span>连续7天打卡</span><span class="points-val">20分</span><span>额外奖励</span></div>
+          <div class="rules-row"><span>连续30天打卡</span><span class="points-val">100分</span><span>额外奖励</span></div>
+        </div>
+      </div>
+
+      <div class="rules-card">
+        <h3>⭐ 等级说明</h3>
+        <p>根据累计积分自动晋升等级：</p>
+        <div class="rules-table">
+          <div class="rules-row header"><span>等级</span><span>所需积分</span><span>说明</span></div>
+          <div class="rules-row"><span>🌱 新手</span><span class="points-val">0分</span><span>初始等级</span></div>
+          <div class="rules-row"><span>⭐ 入门</span><span class="points-val">100分</span><span>开始积累</span></div>
+          <div class="rules-row"><span>🔥 进阶</span><span class="points-val">300分</span><span>持续参与</span></div>
+          <div class="rules-row"><span>💪 熟练</span><span class="points-val">500分</span><span>活跃分子</span></div>
+          <div class="rules-row"><span>🏆 精通</span><span class="points-val">1000分</span><span>竞赛达人</span></div>
+          <div class="rules-row"><span>👑 大师</span><span class="points-val">2000分</span><span>顶尖水平</span></div>
+        </div>
+      </div>
     </div>
   </section>
 </template>
