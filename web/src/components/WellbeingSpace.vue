@@ -12,7 +12,7 @@ import WellbeingUtilityRail from './WellbeingUtilityRail.vue'
 type Weather = 'sunny' | 'cloudy' | 'rainy' | 'stormy'
 interface WallMessage { message_id: string; content: string; topic?: string }
 interface AlertItem { student_id: string; level: string; reason_codes: string[]; created_at: string }
-interface TalkEntry { student_id: string; counselor_name: string; meeting_at: string; location: string; topic_summary: string; agreed_actions: string; follow_up_at?: string }
+interface TalkEntry { student_id: string; student_name: string; counselor_name: string; meeting_at: string; location: string; topic_summary: string; agreed_actions: string; follow_up_at?: string; overall_assessment: string }
 
 const { identity } = useIdentity()
 
@@ -47,8 +47,8 @@ const filteredTalkEntries = computed(() => {
 })
 const showNewTalk = ref(false)
 const newTalk = ref<TalkEntry>({
-  student_id: '', counselor_name: '', meeting_at: '', location: '',
-  topic_summary: '', agreed_actions: '', follow_up_at: ''
+  student_id: '', student_name: '', counselor_name: '', meeting_at: '', location: '',
+  topic_summary: '', agreed_actions: '', follow_up_at: '', overall_assessment: ''
 })
 
 // 寄语墙
@@ -132,7 +132,7 @@ async function publishWallMessage() {
 function addTalkEntry() {
   if (!newTalk.value.student_id || !newTalk.value.topic_summary) return
   talkEntries.value.push({ ...newTalk.value })
-  newTalk.value = { student_id: '', counselor_name: '', meeting_at: '', location: '', topic_summary: '', agreed_actions: '', follow_up_at: '' }
+  newTalk.value = { student_id: '', student_name: '', counselor_name: '', meeting_at: '', location: '', topic_summary: '', agreed_actions: '', follow_up_at: '', overall_assessment: '' }
   showNewTalk.value = false
   localStorage.setItem('zhq-talk-ledger', JSON.stringify(talkEntries.value))
 }
@@ -168,6 +168,9 @@ function exportLedger(format: string = 'json') {
     content = lines.join('\n')
     mimeType = 'text/plain'
     fileName = 'talk_ledger_' + date + '.txt'
+  } else if (format === 'pdf') {
+    generatePDF()
+    return
   }
   
   const blob = new Blob([content], { type: mimeType })
@@ -175,6 +178,57 @@ function exportLedger(format: string = 'json') {
   const a = document.createElement('a')
   a.href = url; a.download = fileName
   a.click(); URL.revokeObjectURL(url)
+}
+
+function generatePDF() {
+  const printWindow = window.open('', '_blank')
+  if (!printWindow) return
+  
+  const date = new Date().toLocaleString('zh-CN')
+  let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Talk Ledger</title>'
+  html += '<style>'
+  html += 'body { font-family: SimSun, serif; padding: 40px; color: #333; }'
+  html += 'h1 { text-align: center; font-size: 22px; margin-bottom: 5px; }'
+  html += '.subtitle { text-align: center; color: #666; margin-bottom: 25px; font-size: 14px; }'
+  html += '.record { border: 1px solid #ccc; padding: 15px; margin-bottom: 15px; page-break-inside: avoid; }'
+  html += '.record-header { background: #f0f0f0; padding: 8px; margin: -15px -15px 12px; font-weight: bold; font-size: 14px; }'
+  html += '.row { display: flex; margin-bottom: 6px; font-size: 13px; }'
+  html += '.label { width: 90px; font-weight: bold; color: #555; }'
+  html += '.value { flex: 1; }'
+  html += '.section { margin-top: 12px; padding-top: 10px; border-top: 1px dashed #ddd; }'
+  html += '.section-title { font-weight: bold; color: #173f43; margin-bottom: 6px; font-size: 13px; }'
+  html += '.footer { margin-top: 30px; text-align: center; color: #999; font-size: 11px; }'
+  html += '@media print { body { padding: 20px; } }'
+  html += '</style></head><body>'
+  html += '<h1>SDNU Talk Ledger</h1>'
+  html += '<p class="subtitle">Shandong Normal University - Export Time: ' + date + '</p>'
+  
+  talkEntries.value.forEach((entry, i) => {
+    html += '<div class="record">'
+    html += '<div class="record-header">Record ' + (i + 1) + '</div>'
+    html += '<div class="row"><span class="label">Student ID:</span><span class="value">' + entry.student_id + '</span></div>'
+    html += '<div class="row"><span class="label">Name:</span><span class="value">' + (entry.student_name || 'N/A') + '</span></div>'
+    html += '<div class="row"><span class="label">Counselor:</span><span class="value">' + entry.counselor_name + '</span></div>'
+    html += '<div class="row"><span class="label">Time:</span><span class="value">' + entry.meeting_at + '</span></div>'
+    html += '<div class="row"><span class="label">Location:</span><span class="value">' + entry.location + '</span></div>'
+    html += '<div class="section"><div class="section-title">Topic</div><p>' + entry.topic_summary + '</p></div>'
+    html += '<div class="section"><div class="section-title">Agreed Actions</div><p>' + entry.agreed_actions + '</p></div>'
+    if (entry.overall_assessment) {
+      html += '<div class="section"><div class="section-title">Assessment</div><p>' + entry.overall_assessment + '</p></div>'
+    }
+    if (entry.follow_up_at) {
+      html += '<div class="section"><div class="section-title">Follow-up</div><p>' + entry.follow_up_at + '</p></div>'
+    }
+    html += '</div>'
+  })
+  
+  html += '<div class="footer"><p>Total: ' + talkEntries.value.length + ' records</p>'
+  html += '<p>Generated by SDNU Smart Campus Platform</p></div>'
+  html += '</body></html>'
+  
+  printWindow.document.write(html)
+  printWindow.document.close()
+  setTimeout(() => printWindow.print(), 500)
 }
 
 onMounted(() => {
@@ -283,6 +337,7 @@ onBeforeUnmount(() => window.clearInterval(breathTimer))
                 <button @click="exportLedger('json')">JSON</button>
                 <button @click="exportLedger('csv')">CSV</button>
                 <button @click="exportLedger('txt')">TXT</button>
+                <button @click="exportLedger('pdf')">PDF</button>
               </div>
             </div>
           </div>
@@ -291,16 +346,18 @@ onBeforeUnmount(() => window.clearInterval(breathTimer))
         <!-- 新增谈心记录表单 -->
         <div v-if="showNewTalk" class="talk-form">
           <div class="form-row">
-            <label>学生ID<input v-model="newTalk.student_id" placeholder="学号"></label>
-            <label>辅导员<input v-model="newTalk.counselor_name" placeholder="姓名"></label>
+            <label>学生学号<input v-model="newTalk.student_id" placeholder="学号"></label>
+            <label>学生姓名<input v-model="newTalk.student_name" placeholder="姓名"></label>
           </div>
           <div class="form-row">
-            <label>时间<input v-model="newTalk.meeting_at" type="datetime-local"></label>
-            <label>地点<input v-model="newTalk.location" placeholder="如：心理咨询室"></label>
+            <label>辅导员<input v-model="newTalk.counselor_name" placeholder="姓名"></label>
+            <label>访谈时间<input v-model="newTalk.meeting_at" type="datetime-local"></label>
           </div>
+          <label>访谈地点<input v-model="newTalk.location" placeholder="如：心理咨询室"></label>
           <label>主要话题<textarea v-model="newTalk.topic_summary" placeholder="记录主要讨论的话题"></textarea></label>
           <label>商定事项<textarea v-model="newTalk.agreed_actions" placeholder="记录商定的后续行动"></textarea></label>
           <label>下次跟进<input v-model="newTalk.follow_up_at" type="date"></label>
+          <label>整体概况评价<textarea v-model="newTalk.overall_assessment" placeholder="对学生整体情况的评价和建议"></textarea></label>
           <button @click="addTalkEntry" class="submit-btn">保存记录</button>
         </div>
 
@@ -321,8 +378,10 @@ onBeforeUnmount(() => window.clearInterval(breathTimer))
               <span class="talk-time">{{ entry.meeting_at }}</span>
             </div>
             <div class="talk-content">
+              <p><strong>学生：</strong>{{ entry.student_name || '未填写' }}（{{ entry.student_id }}）</p>
               <p><strong>话题：</strong>{{ entry.topic_summary }}</p>
               <p><strong>商定：</strong>{{ entry.agreed_actions }}</p>
+              <p v-if="entry.overall_assessment"><strong>评价：</strong>{{ entry.overall_assessment }}</p>
               <p v-if="entry.follow_up_at"><strong>跟进：</strong>{{ entry.follow_up_at }}</p>
             </div>
           </div>
