@@ -32,7 +32,7 @@ async function parseDraft() {
   message.value = ''
   try {
     const result = await command('document_engine', 'extract_elements', draft.value)
-    elements.value = result.data as DocumentElements
+    elements.value = result.data as unknown as DocumentElements
     message.value = result.message
   } catch (error) {
     message.value = error instanceof Error ? error.message : '解析失败'
