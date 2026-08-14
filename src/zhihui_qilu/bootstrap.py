@@ -15,6 +15,7 @@ from zhihui_qilu.skills.document_engine import DocumentEngineSkill
 from zhihui_qilu.skills.wellbeing import WellbeingSkill
 from zhihui_qilu.competition_service import CompetitionService
 from zhihui_qilu.points_service import PointsService
+from zhihui_qilu.system_integration import SystemIntegrationService
 from zhihui_qilu.wellbeing_service import WellbeingService
 
 
