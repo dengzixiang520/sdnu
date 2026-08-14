@@ -1,25 +1,25 @@
 ﻿<script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { PhArrowSquareOut, PhFilePlus, PhFunnel, PhLightbulb, PhMagnifyingGlass, PhNewspaper, PhRocketLaunch, PhUsersThree, PhTrophy, PhCalendar, PhUsers, PhStar, PhX, PhArrowLeft, PhTarget, PhMedal, PhClock, PhBookOpen } from '@phosphor-icons/vue'
+import { PhArrowSquareOut, PhFilePlus, PhFunnel, PhLightbulb, PhMagnifyingGlass, PhNewspaper, PhRocketLaunch, PhUsersThree, PhTrophy, PhCalendar, PhUsers, PhStar, PhArrowLeft, PhTarget, PhMedal, PhClock, PhBookOpen, PhUpload, PhChartBar } from '@phosphor-icons/vue'
 import { command } from '../api'
 import { useIdentity } from '../identity'
 
-type Tool = 'submit' | 'team' | 'proposal' | 'review'
+type Tool = 'submit' | 'team' | 'proposal' | 'review' | 'upload'
 interface Competition {
   id: string
   name: string
   category: string
   level: string
   organizer: string
-  website: string
-  description: string
+  awards: Record<string, number>
   teamSize: string
-  time: string
-  registrationDeadline: string
+  schoolParticipants: string
   difficulty: string
   skills: string[]
-  awards: string[]
   tips: string
+  isAlevel: boolean
+  year: string
+  note: string
 }
 
 const { identity } = useIdentity()
@@ -30,16 +30,9 @@ const competitions = ref<Competition[]>([])
 const categories = ref<string[]>([])
 const loading = ref(false)
 const error = ref('')
-
 const selectedCompetition = ref<Competition | null>(null)
 
-const name = ref('')
-const edition = ref('')
-const url = ref('')
-const submitMessage = ref('')
-const project = ref('')
-const outline = ref<string[]>([])
-const matches = ref<Array<{ display_name: string; score: number; matched_skills: string[] }>>([])
+const isStaff = computed(() => identity.value.role === 'counselor' || identity.value.role === 'administrator')
 
 async function fetchCompetitions() {
   loading.value = true
@@ -61,16 +54,11 @@ async function fetchCompetitions() {
   }
 }
 
-function viewDetail(comp: Competition) {
-  selectedCompetition.value = comp
-}
+function viewDetail(comp: Competition) { selectedCompetition.value = comp }
+function backToList() { selectedCompetition.value = null }
 
-function backToList() {
-  selectedCompetition.value = null
-}
-
-function difficultyColor(difficulty: string) {
-  switch (difficulty) {
+function difficultyColor(d: string) {
+  switch (d) {
     case '低': return '#52c41a'
     case '中': return '#1890ff'
     case '中高': return '#faad14'
@@ -80,24 +68,24 @@ function difficultyColor(difficulty: string) {
   }
 }
 
-function difficultyDesc(difficulty: string) {
-  switch (difficulty) {
-    case '低': return '入门级，适合新手'
-    case '中': return '需要一定基础'
-    case '中高': return '建议有相关经验'
-    case '高': return '需要较强专业能力'
-    case '极高': return '需要深厚专业功底'
-    default: return '难度未知'
-  }
+function awardLevelColor(level: string) {
+  if (level.startsWith('A')) return '#ff4d4f'
+  if (level.startsWith('B')) return '#ff7a45'
+  if (level.startsWith('C')) return '#faad14'
+  if (level.startsWith('D')) return '#52c41a'
+  return '#999'
 }
 
-function getHighlights(comp: Competition): string[] {
-  const highlights = []
-  if (comp.level === '国家级' || comp.level === '国际级') highlights.push('权威认证，含金量高')
-  if (comp.difficulty === '高' || comp.difficulty === '极高') highlights.push('高难度挑战')
-  if (comp.teamSize.includes('-')) highlights.push('团队协作')
-  if (comp.skills.length > 3) highlights.push('多技能综合')
-  return highlights.slice(0, 3)
+function awardLevelBg(level: string) {
+  if (level.startsWith('A')) return '#fff1f0'
+  if (level.startsWith('B')) return '#fff7e6'
+  if (level.startsWith('C')) return '#fffbe6'
+  if (level.startsWith('D')) return '#f6ffed'
+  return '#f5f5f5'
+}
+
+function getTotalAwards(awards: Record<string, number>) {
+  return Object.values(awards).reduce((sum, count) => sum + count, 0)
 }
 
 onMounted(() => { fetchCompetitions() })
@@ -105,144 +93,98 @@ onMounted(() => { fetchCompetitions() })
 
 <template>
   <section class="innovation-page" :class="{ 'detail-mode': selectedCompetition }">
-    <!-- 竞赛详情视图 - 横向排版 -->
+    <!-- 竞赛详情 -->
     <div v-if="selectedCompetition" class="competition-detail">
-      <!-- 顶部：返回按钮 + 竞赛名称 -->
       <div class="detail-top-bar">
-        <button class="back-btn" @click="backToList">
-          <PhArrowLeft :size="18" /> 返回列表
-        </button>
+        <button class="back-btn" @click="backToList"><PhArrowLeft :size="18" /> 返回列表</button>
         <div class="detail-title-row">
           <h1>{{ selectedCompetition.name }}</h1>
-          <div class="detail-tags-inline">
-            <span class="category-tag">{{ selectedCompetition.category }}</span>
-            <span class="level-tag">{{ selectedCompetition.level }}</span>
-          </div>
+          <span class="category-tag">{{ selectedCompetition.category }}</span>
+          <span class="level-tag">{{ selectedCompetition.level }}</span>
         </div>
-        <a v-if="selectedCompetition.website" :href="selectedCompetition.website" target="_blank" rel="noreferrer" class="website-btn">
-          访问官网 <PhArrowSquareOut :size="14" />
-        </a>
       </div>
       
-      <!-- 横向信息卡片行 -->
+      <!-- 数据说明 -->
+      <div class="data-notice">
+        <PhClock :size="16" />
+        <span>{{ selectedCompetition.note }}（{{ selectedCompetition.year }}学年）</span>
+      </div>
+      
+      <!-- 信息卡片行 -->
       <div class="detail-info-row">
-        <div class="info-card-horizontal">
-          <div class="info-icon"><PhCalendar :size="24" /></div>
-          <div class="info-content">
-            <span class="info-label">比赛时间</span>
-            <span class="info-value">{{ selectedCompetition.time || '待更新' }}</span>
-          </div>
+        <div class="info-card-h">
+          <div class="info-icon"><PhUsers :size="22" /></div>
+          <div><span class="info-label">参赛规模</span><span class="info-val">{{ selectedCompetition.teamSize }}</span></div>
         </div>
-        
-        <div class="info-card-horizontal">
-          <div class="info-icon"><PhClock :size="24" /></div>
-          <div class="info-content">
-            <span class="info-label">报名截止</span>
-            <span class="info-value highlight">{{ selectedCompetition.registrationDeadline || '待更新' }}</span>
-          </div>
+        <div class="info-card-h">
+          <div class="info-icon"><PhStar :size="22" /></div>
+          <div><span class="info-label">难度</span><span class="info-val" :style="{color: difficultyColor(selectedCompetition.difficulty)}">{{ selectedCompetition.difficulty }}</span></div>
         </div>
-        
-        <div class="info-card-horizontal">
-          <div class="info-icon"><PhUsers :size="24" /></div>
-          <div class="info-content">
-            <span class="info-label">团队规模</span>
-            <span class="info-value">{{ selectedCompetition.teamSize }}</span>
-          </div>
-        </div>
-        
-        <div class="info-card-horizontal">
-          <div class="info-icon"><PhStar :size="24" /></div>
-          <div class="info-content">
-            <span class="info-label">难度等级</span>
-            <span class="info-value" :style="{ color: difficultyColor(selectedCompetition.difficulty) }">{{ selectedCompetition.difficulty }}</span>
-          </div>
-        </div>
-        
-        <div class="info-card-horizontal">
-          <div class="info-icon"><PhTarget :size="24" /></div>
-          <div class="info-content">
-            <span class="info-label">竞赛级别</span>
-            <span class="info-value">{{ selectedCompetition.level }}</span>
-          </div>
+        <div class="info-card-h">
+          <div class="info-icon"><PhTrophy :size="22" /></div>
+          <div><span class="info-label">获奖总数</span><span class="info-val">{{ getTotalAwards(selectedCompetition.awards) }}项</span></div>
         </div>
       </div>
       
-      <!-- 横向内容区域 -->
-      <div class="detail-content-row">
-        <!-- 左侧：竞赛介绍 -->
-        <div class="detail-main-content">
-          <div class="content-section">
-            <h3><PhBookOpen :size="20" /> 竞赛介绍</h3>
-            <p class="description-text">{{ selectedCompetition.description }}</p>
-            <p class="organizer-text">主办单位：{{ selectedCompetition.organizer || '待更新' }}</p>
-          </div>
-          
-          <div v-if="selectedCompetition.tips" class="content-section tips-section">
-            <h3><PhLightbulb :size="20" /> 参赛建议</h3>
-            <p>{{ selectedCompetition.tips }}</p>
+      <!-- 获奖详情 -->
+      <div class="awards-detail">
+        <h3><PhTrophy :size="20" /> 获奖情况</h3>
+        <div class="awards-grid">
+          <div v-for="(count, level) in selectedCompetition.awards" :key="level" class="award-item" :style="{backgroundColor: awardLevelBg(level), borderColor: awardLevelColor(level)}">
+            <span class="award-level" :style="{color: awardLevelColor(level)}">{{ level }}</span>
+            <span class="award-count">{{ count }}项</span>
           </div>
         </div>
-        
-        <!-- 右侧：技能和奖项 -->
-        <div class="detail-sidebar">
-          <div class="sidebar-card">
-            <h4><PhMedal :size="18" /> 所需技能</h4>
-            <div class="skills-horizontal">
-              <span v-for="skill in selectedCompetition.skills" :key="skill" class="skill-chip">{{ skill }}</span>
-            </div>
-          </div>
-          
-          <div class="sidebar-card">
-            <h4><PhTrophy :size="18" /> 奖项设置</h4>
-            <div class="awards-horizontal">
-              <div v-for="(award, index) in selectedCompetition.awards" :key="award" class="award-chip" :class="{ 'gold': index === 0, 'silver': index === 1, 'bronze': index === 2 }">
-                {{ award }}
-              </div>
-            </div>
-          </div>
-          
-          <div class="sidebar-card">
-            <h4><PhStar :size="18" /> 难度评估</h4>
-            <div class="difficulty-horizontal">
-              <div class="difficulty-level-text" :style="{ color: difficultyColor(selectedCompetition.difficulty) }">
-                {{ selectedCompetition.difficulty }}
-              </div>
-              <div class="difficulty-bar-horizontal">
-                <div class="difficulty-fill-horizontal" :style="{ width: selectedCompetition.difficulty === '低' ? '20%' : selectedCompetition.difficulty === '中' ? '40%' : selectedCompetition.difficulty === '中高' ? '60%' : selectedCompetition.difficulty === '高' ? '80%' : '100%', backgroundColor: difficultyColor(selectedCompetition.difficulty) }"></div>
-              </div>
-              <p class="difficulty-desc-horizontal">{{ difficultyDesc(selectedCompetition.difficulty) }}</p>
-            </div>
+        <div class="award-legend">
+          <p><strong>等级说明：</strong></p>
+          <p>A1/A2/A3 = A类竞赛国家级特等/一等/二等/三等</p>
+          <p>B1/B2/B3 = B类竞赛国家级一等/二等/三等</p>
+          <p>C1/C2/C3 = C类竞赛省级一等/二等/三等</p>
+          <p>D1/D2/D3 = D类竞赛校级一等/二等/三等</p>
+        </div>
+      </div>
+      
+      <!-- 竞赛介绍 -->
+      <div class="detail-body">
+        <div class="detail-desc-block">
+          <h3><PhBookOpen :size="20" /> 竞赛介绍</h3>
+          <p>主办单位：{{ selectedCompetition.organizer }}</p>
+          <p>{{ selectedCompetition.tips }}</p>
+        </div>
+      </div>
+      
+      <!-- 所需技能 -->
+      <div class="detail-bottom-row">
+        <div class="bottom-card">
+          <h4><PhMedal :size="18" /> 所需技能</h4>
+          <div class="chip-wrap">
+            <span v-for="s in selectedCompetition.skills" :key="s" class="chip green">{{ s }}</span>
           </div>
         </div>
       </div>
     </div>
     
-    <!-- 竞赛列表视图 -->
+    <!-- 竞赛列表 -->
     <template v-else>
       <main class="innovation-feed">
         <header class="innovation-masthead">
           <div>
             <span><PhNewspaper :size="18" /> 竞赛信息中心</span>
-            <h1>发现适合你的竞赛，<br><em>提前规划参赛之路。</em></h1>
-            <p>收录 {{ competitions.length }} 个竞赛，{{ categories.length - 1 }} 个类别</p>
+            <h1>山东师范大学竞赛成绩，<br><em>以赛促学，以赛促创。</em></h1>
+            <p>收录 {{ competitions.length }} 个学校有参赛经验的竞赛，{{ categories.length - 1 }} 个类别</p>
           </div>
-          <div class="launch-stamp">
-            <PhTrophy :size="38" weight="duotone" />
-            <strong>COMPETE<br>&<br>WIN</strong>
-          </div>
+          <div class="launch-stamp"><PhTrophy :size="38" weight="duotone" /><strong>SDNU<br>COMPETE</strong></div>
         </header>
         
+        <!-- 数据说明 -->
+        <div class="data-notice-banner">
+          <PhClock :size="16" />
+          <span>当前数据为2024-2025学年学校统计结果，仅供参考。后续将上传更多年度数据。</span>
+        </div>
+        
         <div class="feed-controls">
-          <label>
-            <PhMagnifyingGlass :size="19" />
-            <input v-model="search" placeholder="搜索竞赛名称、技能或关键词" @input="fetchCompetitions">
-          </label>
-          <div>
-            <PhFunnel :size="17" />
-            <button v-for="item in categories" :key="item" :class="{ active: category === item }" type="button" @click="category = item; fetchCompetitions()">
-              {{ item }}
-            </button>
-          </div>
+          <label><PhMagnifyingGlass :size="19" /><input v-model="search" placeholder="搜索竞赛" @input="fetchCompetitions"></label>
+          <div><PhFunnel :size="17" /><button v-for="item in categories" :key="item" :class="{active:category===item}" @click="category=item;fetchCompetitions()">{{ item }}</button></div>
         </div>
         
         <section class="notice-stream">
@@ -253,20 +195,18 @@ onMounted(() => { fetchCompetitions() })
             </div>
             <div class="competition-info">
               <h2>{{ comp.name }}</h2>
-              <p class="description">{{ comp.description }}</p>
               <div class="competition-meta">
-                <span><PhCalendar :size="14" /> {{ comp.time }}</span>
                 <span><PhUsers :size="14" /> {{ comp.teamSize }}</span>
-                <span :style="{ color: difficultyColor(comp.difficulty) }"><PhStar :size="14" /> {{ comp.difficulty }}</span>
+                <span :style="{color:difficultyColor(comp.difficulty)}"><PhStar :size="14" /> {{ comp.difficulty }}</span>
+                <span><PhTrophy :size="14" /> {{ getTotalAwards(comp.awards) }}项获奖</span>
               </div>
-              <div class="skills-list">
-                <span v-for="skill in comp.skills.slice(0, 3)" :key="skill" class="skill-tag">{{ skill }}</span>
-                <span v-if="comp.skills.length > 3" class="skill-tag more">+{{ comp.skills.length - 3 }}</span>
+              <div class="awards-preview">
+                <span v-for="(count, level) in comp.awards" :key="level" class="award-badge" :style="{backgroundColor: awardLevelBg(level), color: awardLevelColor(level), borderColor: awardLevelColor(level)}">
+                  {{ level }}: {{ count }}
+                </span>
               </div>
             </div>
-            <div class="card-footer">
-              <span class="view-detail">查看详情 →</span>
-            </div>
+            <div class="card-footer"><span class="view-detail">查看详情 →</span></div>
           </article>
           
           <div v-if="loading" class="feed-empty">加载中...</div>
@@ -276,45 +216,22 @@ onMounted(() => { fetchCompetitions() })
 
       <aside class="innovation-rail">
         <header><h2>竞赛工具</h2></header>
-        <nav aria-label="竞赛工具">
-          <button :class="{ active: activeTool === 'submit' }" type="button" @click="activeTool = 'submit'">
-            <PhFilePlus :size="20" weight="duotone" />
-            <span><strong>提交竞赛</strong><small>添加新竞赛</small></span>
-          </button>
-          <button :class="{ active: activeTool === 'team' }" type="button" @click="activeTool = 'team'">
-            <PhUsersThree :size="20" weight="duotone" />
-            <span><strong>技能组队</strong><small>匹配队友</small></span>
-          </button>
-          <button :class="{ active: activeTool === 'proposal' }" type="button" @click="activeTool = 'proposal'">
-            <PhLightbulb :size="20" weight="duotone" />
-            <span><strong>申报大纲</strong><small>生成结构</small></span>
-          </button>
+        <nav>
+          <button :class="{active:activeTool==='submit'}" @click="activeTool='submit'"><PhFilePlus :size="20" weight="duotone" /><span><strong>提交竞赛</strong></span></button>
+          <button v-if="isStaff" :class="{active:activeTool==='upload'}" @click="activeTool='upload'"><PhUpload :size="20" weight="duotone" /><span><strong>上传成果</strong></span></button>
         </nav>
-        
         <section class="innovation-tool-panel">
-          <div v-if="activeTool === 'submit'" class="submit-tool">
-            <h3>提交竞赛信息</h3>
-            <label>赛事名称<input v-model="name" placeholder="输入竞赛名称"></label>
-            <label>届次<input v-model="edition" placeholder="例如：2026"></label>
-            <button type="button" @click="submitMessage = '功能开发中...'">提交核验</button>
-            <p>{{ submitMessage || '审核通过后公开' }}</p>
-          </div>
-          <div v-else-if="activeTool === 'team'" class="team-tool">
-            <h3>寻找队友</h3>
-            <label>项目名称<input v-model="project"></label>
-            <button type="button" @click="submitMessage = '功能开发中...'">技能匹配</button>
-          </div>
-          <div v-else class="proposal-tool">
-            <h3>申报书骨架</h3>
-            <label>项目名称<input v-model="project"></label>
-            <button type="button" @click="submitMessage = '功能开发中...'">生成大纲</button>
+          <div v-if="activeTool==='submit'"><h3>提交竞赛信息</h3><p>功能开发中...</p></div>
+          <div v-if="activeTool==='upload' && isStaff">
+            <h3>上传竞赛成果</h3>
+            <p>一键导入全年竞赛获奖数据</p>
+            <button class="ink-button primary" @click="error='功能开发中...'">导入竞赛数据</button>
           </div>
         </section>
-        
         <div class="stats-panel">
           <h3>竞赛统计</h3>
-          <div class="stat-item"><span>总竞赛数</span><span class="stat-value">{{ competitions.length }}</span></div>
-          <div class="stat-item"><span>竞赛类别</span><span class="stat-value">{{ categories.length - 1 }}</span></div>
+          <div class="stat-item"><span>竞赛数</span><span class="stat-value">{{ competitions.length }}</span></div>
+          <div class="stat-item"><span>类别数</span><span class="stat-value">{{ categories.length - 1 }}</span></div>
         </div>
       </aside>
     </template>
