@@ -2118,3 +2118,403 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   outline: none;
   border-color: #397f72;
 }
+/* ==================== 积分兑换样式 ==================== */
+.exchange-section {
+  margin-top: 20px;
+}
+
+.exchange-categories {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.exchange-categories button {
+  padding: 8px 16px;
+  background: #f5f4eb;
+  border: 1px solid #d8ded4;
+  border-radius: 20px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.exchange-categories button.active {
+  background: #397f72;
+  color: white;
+  border-color: #397f72;
+}
+
+.products-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 30px;
+}
+
+.product-card {
+  background: rgba(255, 254, 248, 0.98);
+  border: 1px solid #d8ded4;
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.2s;
+}
+
+.product-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(25, 58, 55, 0.1);
+}
+
+.product-card.out-of-stock {
+  opacity: 0.6;
+}
+
+.product-image {
+  font-size: 48px;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.product-info h3 {
+  font-size: 16px;
+  color: #172b2a;
+  margin: 0 0 8px 0;
+}
+
+.product-info p {
+  font-size: 13px;
+  color: #667572;
+  margin: 0 0 12px 0;
+  line-height: 1.5;
+}
+
+.product-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.product-points {
+  font-size: 18px;
+  font-weight: 700;
+  color: #397f72;
+}
+
+.product-stock {
+  font-size: 12px;
+  color: #999;
+}
+
+.product-location {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #667572;
+  margin-bottom: 12px;
+}
+
+.exchange-btn {
+  width: 100%;
+  padding: 10px;
+  background: #397f72;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: auto;
+}
+
+.exchange-btn:hover:not(:disabled) {
+  background: #2d6659;
+}
+
+.exchange-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+/* 兑换记录 */
+.exchange-records {
+  margin-top: 30px;
+}
+
+.exchange-records h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  color: #172b2a;
+  margin: 0 0 16px 0;
+}
+
+.records-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.record-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: rgba(255, 254, 248, 0.98);
+  border: 1px solid #d8ded4;
+  border-radius: 12px;
+}
+
+.record-item.claimed {
+  opacity: 0.7;
+}
+
+.record-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.record-name {
+  font-weight: 600;
+  color: #172b2a;
+}
+
+.record-time {
+  font-size: 12px;
+  color: #999;
+}
+
+.record-code {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.code-label {
+  font-size: 11px;
+  color: #999;
+}
+
+.code-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #397f72;
+  font-family: monospace;
+  letter-spacing: 2px;
+}
+
+.record-status {
+  min-width: 60px;
+  text-align: center;
+}
+
+.status-pending {
+  padding: 4px 10px;
+  background: #fff3e0;
+  color: #e65100;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-claimed {
+  padding: 4px 10px;
+  background: #e8f4f0;
+  color: #397f72;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-expired {
+  padding: 4px 10px;
+  background: #f5f5f5;
+  color: #999;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* 弹窗样式 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 420px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-content h3 {
+  font-size: 20px;
+  color: #172b2a;
+  margin: 0 0 20px 0;
+  text-align: center;
+}
+
+.confirm-product {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  background: #f5f4eb;
+  border-radius: 12px;
+  margin-bottom: 20px;
+}
+
+.confirm-image {
+  font-size: 40px;
+}
+
+.confirm-product strong {
+  color: #172b2a;
+}
+
+.confirm-product p {
+  font-size: 13px;
+  color: #667572;
+  margin: 4px 0 0 0;
+}
+
+.confirm-details {
+  margin-bottom: 24px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid #eef1ea;
+  font-size: 14px;
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.points-cost {
+  font-weight: 700;
+  color: #397f72;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.cancel-btn, .confirm-btn {
+  flex: 1;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cancel-btn {
+  background: #f5f4eb;
+  border: 1px solid #d8ded4;
+  color: #172b2a;
+}
+
+.confirm-btn {
+  background: #397f72;
+  border: none;
+  color: white;
+}
+
+.confirm-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+/* 成功/失败结果 */
+.success-result, .error-result {
+  text-align: center;
+}
+
+.success-icon {
+  color: #397f72;
+  margin-bottom: 16px;
+}
+
+.error-icon {
+  font-size: 48px;
+  display: block;
+  margin-bottom: 16px;
+}
+
+.success-result h3, .error-result h3 {
+  margin-bottom: 16px;
+}
+
+.result-details {
+  background: #f5f4eb;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.result-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  font-size: 14px;
+  border-bottom: 1px solid #eef1ea;
+}
+
+.result-row:last-child {
+  border-bottom: none;
+}
+
+.code-row {
+  background: #e8f4f0;
+  margin: 8px -16px;
+  padding: 12px 16px;
+  border-radius: 8px;
+}
+
+.exchange-code {
+  font-size: 20px;
+  font-weight: 800;
+  color: #397f72;
+  font-family: monospace;
+  letter-spacing: 3px;
+}
+
+.result-tip {
+  font-size: 13px;
+  color: #667572;
+  margin-bottom: 20px;
+}
+
+.success-result button, .error-result button {
+  padding: 12px 32px;
+  background: #397f72;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}

@@ -225,3 +225,123 @@ class PointsService:
     def add_checkin_points(self, user_id: str, user_name: str) -> dict[str, Any]:
         """Add points for daily check-in."""
         return self.add_points(user_id, user_name, POINTS_RULES["checkin"], "checkin", "每日打卡")
+
+    # ==================== 积分兑换功能 ====================
+    
+    def _load_exchange_products(self) -> list[dict[str, Any]]:
+        """Load exchange products from JSON file."""
+        products_file = self._data_dir / "exchange_products.json"
+        if not products_file.exists():
+            return []
+        try:
+            return json.loads(products_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, FileNotFoundError):
+            return []
+    
+    def _save_exchange_products(self, products: list[dict[str, Any]]) -> None:
+        """Save exchange products to JSON file."""
+        products_file = self._data_dir / "exchange_products.json"
+        products_file.write_text(json.dumps(products, ensure_ascii=False, indent=2), encoding="utf-8")
+    
+    def _load_exchange_records(self) -> list[dict[str, Any]]:
+        """Load exchange records."""
+        records_file = self._data_dir / "exchange_records.json"
+        if not records_file.exists():
+            return []
+        try:
+            return json.loads(records_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, FileNotFoundError):
+            return []
+    
+    def _save_exchange_records(self, records: list[dict[str, Any]]) -> None:
+        """Save exchange records."""
+        records_file = self._data_dir / "exchange_records.json"
+        records_file.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+    
+    def get_exchange_products(self) -> list[dict[str, Any]]:
+        """Get all available exchange products."""
+        return self._load_exchange_products()
+    
+    def get_exchange_product(self, product_id: str) -> dict[str, Any] | None:
+        """Get exchange product by ID."""
+        products = self._load_exchange_products()
+        return next((p for p in products if p["id"] == product_id), None)
+    
+    def exchange_product(self, user_id: str, user_name: str, product_id: str) -> dict[str, Any]:
+        """Exchange points for a product."""
+        # 获取商品
+        product = self.get_exchange_product(product_id)
+        if not product:
+            return {"success": False, "error": "商品不存在"}
+        
+        # 检查库存
+        if product["stock"] <= 0:
+            return {"success": False, "error": "商品已售罄"}
+        
+        # 获取用户积分
+        user = self.get_user_points(user_id)
+        if not user:
+            return {"success": False, "error": "用户积分记录不存在"}
+        
+        # 检查积分是否足够
+        if user["total_points"] < product["points"]:
+            return {"success": False, "error": f"积分不足，需要{product['points']}积分，当前{user['total_points']}积分"}
+        
+        # 扣除积分
+        self.add_points(user_id, user_name, -product["points"], "exchange", f"兑换: {product['name']}")
+        
+        # 减少库存
+        products = self._load_exchange_products()
+        for p in products:
+            if p["id"] == product_id:
+                p["stock"] -= 1
+                break
+        self._save_exchange_products(products)
+        
+        # 生成兑换码
+        import uuid
+        exchange_code = str(uuid.uuid4())[:8].upper()
+        
+        # 记录兑换
+        records = self._load_exchange_records()
+        record = {
+            "id": f"ex{len(records) + 1}",
+            "user_id": user_id,
+            "user_name": user_name,
+            "product_id": product_id,
+            "product_name": product["name"],
+            "points_cost": product["points"],
+            "exchange_code": exchange_code,
+            "exchange_time": datetime.now().isoformat(),
+            "pick_up_location": product["location"],
+            "status": "pending"  # pending, claimed, expired
+        }
+        records.append(record)
+        self._save_exchange_records(records)
+        
+        return {
+            "success": True,
+            "exchange_code": exchange_code,
+            "product_name": product["name"],
+            "points_cost": product["points"],
+            "pick_up_location": product["location"],
+            "message": f"兑换成功！请凭兑换码 {exchange_code} 到 {product['location']} 领取"
+        }
+    
+    def get_user_exchanges(self, user_id: str) -> list[dict[str, Any]]:
+        """Get user exchange records."""
+        records = self._load_exchange_records()
+        return [r for r in records if r["user_id"] == user_id]
+    
+    def claim_exchange(self, exchange_id: str) -> dict[str, Any]:
+        """Mark an exchange as claimed."""
+        records = self._load_exchange_records()
+        for r in records:
+            if r["id"] == exchange_id:
+                if r["status"] != "pending":
+                    return {"success": False, "error": "该兑换已被处理"}
+                r["status"] = "claimed"
+                r["claimed_time"] = datetime.now().isoformat()
+                self._save_exchange_records(records)
+                return {"success": True, "message": "已确认领取"}
+        return {"success": False, "error": "兑换记录不存在"}

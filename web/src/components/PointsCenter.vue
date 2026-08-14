@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { PhTrophy, PhStar, PhMedal, PhChartLine, PhUser, PhCalendar, PhGift } from '@phosphor-icons/vue'
 import { useIdentity } from '../identity'
+import ExchangeShop from './ExchangeShop.vue'
 
 interface UserPoints {
   user_id: string
@@ -259,6 +260,11 @@ onMounted(() => {
           <div class="rules-row"><span>👑 大师</span><span class="points-val">2000分</span><span>顶尖水平</span></div>
         </div>
       </div>
+    </div>
+
+    <!-- 积分兑换 -->
+    <div v-if="activeTab === 'exchange'" class="exchange-section">
+      <ExchangeShop />
     </div>
   </section>
 </template>
