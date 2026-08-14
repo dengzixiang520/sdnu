@@ -34,6 +34,17 @@ let breathTimer: number | undefined
 // 辅导员功能相关
 const alerts = ref<AlertItem[]>([])
 const talkEntries = ref<TalkEntry[]>([])
+const talkSearch = ref('')
+
+const filteredTalkEntries = computed(() => {
+  if (!talkSearch.value) return talkEntries.value
+  const search = talkSearch.value.toLowerCase()
+  return talkEntries.value.filter(e => 
+    e.student_id.toLowerCase().includes(search) ||
+    e.topic_summary.toLowerCase().includes(search) ||
+    e.counselor_name.toLowerCase().includes(search)
+  )
+})
 const showNewTalk = ref(false)
 const newTalk = ref<TalkEntry>({
   student_id: '', counselor_name: '', meeting_at: '', location: '',
@@ -126,12 +137,43 @@ function addTalkEntry() {
   localStorage.setItem('zhq-talk-ledger', JSON.stringify(talkEntries.value))
 }
 
-function exportLedger() {
-  const data = JSON.stringify(talkEntries.value, null, 2)
-  const blob = new Blob([data], { type: 'application/json' })
+function exportLedger(format: string = 'json') {
+  const date = new Date().toISOString().split('T')[0]
+  let content = ''
+  let mimeType = ''
+  let fileName = ''
+  
+  if (format === 'json') {
+    content = JSON.stringify(talkEntries.value, null, 2)
+    mimeType = 'application/json'
+    fileName = 'talk_ledger_' + date + '.json'
+  } else if (format === 'csv') {
+    const headers = ['student_id', 'counselor_name', 'meeting_at', 'location', 'topic_summary', 'agreed_actions', 'follow_up_at']
+    const rows = talkEntries.value.map(e => [e.student_id, e.counselor_name, e.meeting_at, e.location, e.topic_summary, e.agreed_actions, e.follow_up_at || ''])
+    content = headers.join(',') + '\n' + rows.map(r => r.join(',')).join('\n')
+    mimeType = 'text/csv'
+    fileName = 'talk_ledger_' + date + '.csv'
+  } else if (format === 'txt') {
+    const lines = ['=== Talk Ledger ===', 'Export: ' + new Date().toLocaleString(), '']
+    talkEntries.value.forEach((e, i) => {
+      lines.push('[' + (i + 1) + '] ' + e.student_id)
+      lines.push('  Counselor: ' + e.counselor_name)
+      lines.push('  Time: ' + e.meeting_at)
+      lines.push('  Location: ' + e.location)
+      lines.push('  Topic: ' + e.topic_summary)
+      lines.push('  Actions: ' + e.agreed_actions)
+      if (e.follow_up_at) lines.push('  Follow-up: ' + e.follow_up_at)
+      lines.push('')
+    })
+    content = lines.join('\n')
+    mimeType = 'text/plain'
+    fileName = 'talk_ledger_' + date + '.txt'
+  }
+  
+  const blob = new Blob([content], { type: mimeType })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = url; a.download = `谈心台账_${new Date().toISOString().split('T')[0]}.json`
+  a.href = url; a.download = fileName
   a.click(); URL.revokeObjectURL(url)
 }
 
@@ -233,9 +275,16 @@ onBeforeUnmount(() => window.clearInterval(breathTimer))
             <button @click="showNewTalk = !showNewTalk" class="add-btn">
               {{ showNewTalk ? '取消' : '+ 新增记录' }}
             </button>
-            <button @click="exportLedger" class="export-btn" :disabled="talkEntries.length === 0">
-              <PhExport :size="16" /> 导出
-            </button>
+            <div class="export-dropdown">
+              <button class="export-btn" :disabled="talkEntries.length === 0">
+                <PhExport :size="16" /> 导出
+              </button>
+              <div class="export-options">
+                <button @click="exportLedger('json')">JSON</button>
+                <button @click="exportLedger('csv')">CSV</button>
+                <button @click="exportLedger('txt')">TXT</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -255,12 +304,18 @@ onBeforeUnmount(() => window.clearInterval(breathTimer))
           <button @click="addTalkEntry" class="submit-btn">保存记录</button>
         </div>
 
+        <!-- 搜索和统计 -->
+        <div class="ledger-stats" v-if="talkEntries.length > 0">
+          <span>Total: {{ filteredTalkEntries.length }} records</span>
+          <input v-model="talkSearch" placeholder="Search..." class="search-input">
+        </div>
+
         <!-- 谈心记录列表 -->
-        <div v-if="talkEntries.length === 0" class="empty-state">
+        <div v-if="filteredTalkEntries.length === 0" class="empty-state">
           <p>暂无谈心记录</p>
         </div>
         <div v-else class="talk-list">
-          <div v-for="(entry, index) in talkEntries" :key="index" class="talk-item">
+          <div v-for="(entry, index) in filteredTalkEntries" :key="index" class="talk-item">
             <div class="talk-header">
               <span class="talk-student">{{ entry.student_id }}</span>
               <span class="talk-time">{{ entry.meeting_at }}</span>
