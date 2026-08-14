@@ -9,6 +9,7 @@ from zhihui_qilu.api.routes.competition import router as competition_router
 from zhihui_qilu.api.routes.timetable import router as timetable_router
 from zhihui_qilu.api.routes.points import router as points_router
 from zhihui_qilu.api.routes.exchange import router as exchange_router
+from zhihui_qilu.api.routes.documents import router as documents_router
 from zhihui_qilu.api.routes.health import router as health_router
 from zhihui_qilu.bootstrap import PlatformContainer
 from zhihui_qilu.config import Settings
@@ -32,4 +33,5 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(timetable_router)
     app.include_router(points_router)
     app.include_router(exchange_router)
+    app.include_router(documents_router)
     return app

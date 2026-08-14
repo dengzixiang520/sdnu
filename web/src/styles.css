@@ -2518,3 +2518,263 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   font-weight: 600;
   cursor: pointer;
 }
+/* ==================== 文档工坊样式 ==================== */
+.document-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  border-bottom: 2px solid #eef1ea;
+  padding-bottom: 12px;
+}
+
+.document-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #667572;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.document-tabs button.active {
+  background: #397f72;
+  color: white;
+}
+
+.document-tabs button:hover:not(.active) {
+  background: #eef1ea;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f4eb;
+  border: 1px solid #d8ded4;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: #667572;
+}
+
+.icon-btn:hover {
+  background: #eef1ea;
+  color: #172b2a;
+}
+
+.card-footer {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.ink-button.primary {
+  background: #397f72;
+  color: white;
+  border-color: #397f72;
+}
+
+.ink-button.primary:hover {
+  background: #2d6659;
+}
+
+.ink-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: #f5f4eb;
+  border: 1px solid #d8ded4;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ink-button:hover:not(:disabled) {
+  background: #eef1ea;
+}
+
+.ink-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.form-hint {
+  font-size: 13px;
+  color: #667572;
+  margin-top: 12px;
+}
+
+.signature-block {
+  margin-top: 24px;
+  text-align: right;
+}
+
+.signature {
+  font-weight: 600;
+}
+
+.issue-date {
+  color: #667572;
+  margin-top: 8px;
+}
+
+.empty-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  color: #999;
+  text-align: center;
+}
+
+.empty-preview p {
+  margin: 12px 0 4px;
+  font-size: 16px;
+}
+
+.empty-preview small {
+  font-size: 13px;
+}
+
+/* 模板网格 */
+.templates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.template-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  background: rgba(255, 254, 248, 0.98);
+  border: 1px solid #d8ded4;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.template-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(25, 58, 55, 0.1);
+}
+
+.template-icon {
+  font-size: 36px;
+}
+
+.template-info {
+  flex: 1;
+}
+
+.template-info h3 {
+  font-size: 16px;
+  color: #172b2a;
+  margin: 0 0 4px 0;
+}
+
+.template-info p {
+  font-size: 13px;
+  color: #667572;
+  margin: 0;
+}
+
+.use-btn {
+  padding: 8px 16px;
+  background: #397f72;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.use-btn:hover {
+  background: #2d6659;
+}
+
+/* 历史记录 */
+.history-section {
+  min-height: 300px;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  color: #999;
+  text-align: center;
+}
+
+.empty-state p {
+  margin: 12px 0 4px;
+  font-size: 16px;
+}
+
+.empty-state small {
+  font-size: 13px;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: rgba(255, 254, 248, 0.98);
+  border: 1px solid #d8ded4;
+  border-radius: 10px;
+}
+
+.history-icon {
+  font-size: 28px;
+}
+
+.history-info {
+  flex: 1;
+}
+
+.history-info strong {
+  display: block;
+  font-size: 15px;
+  color: #172b2a;
+}
+
+.history-info small {
+  font-size: 13px;
+  color: #667572;
+}
