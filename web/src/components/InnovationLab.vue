@@ -191,7 +191,7 @@ onMounted(() => { fetchCompetitions() })
           <article v-for="comp in competitions" :key="comp.id" class="competition-card" @click="viewDetail(comp)">
             <div class="notice-kind">
               <span class="category-tag">{{ comp.category }}</span>
-              <span class="level-tag">{{ comp.level }}</span>
+              
             </div>
             <div class="competition-info">
               <h2>{{ comp.name }}</h2>
