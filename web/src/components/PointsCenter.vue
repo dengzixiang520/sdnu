@@ -79,12 +79,26 @@ async function fetchRecords() {
   } catch (err) { console.log('获取记录失败') }
 }
 
+const todayChecked = ref(false)
+
+function checkTodayChecked() {
+  const today = new Date().toISOString().split('T')[0]
+  todayChecked.value = records.value.some(r => 
+    r.source === 'checkin' && r.created_at.startsWith(today)
+  )
+}
+
 async function addCheckinPoints() {
+  if (todayChecked.value) {
+    alert('今天已经打过卡了，明天再来吧！')
+    return
+  }
   loading.value = true
   try {
     const response = await fetch(`/api/v1/points/checkin/${currentUserId.value}?user_name=${encodeURIComponent(currentUserName.value)}`, { method: 'POST' })
     const data = await response.json()
     if (data.success) {
+      todayChecked.value = true
       await fetchUserPoints()
       await fetchRecords()
     }
@@ -112,11 +126,12 @@ function isEarned(badgeId: string) {
   return userPoints.value?.badges?.includes(badgeId) ?? false
 }
 
-onMounted(() => {
-  fetchUserPoints()
+onMounted(async () => {
+  await fetchUserPoints()
   fetchLeaderboard()
   fetchBadges()
-  fetchRecords()
+  await fetchRecords()
+  checkTodayChecked()
 })
 </script>
 
@@ -164,8 +179,8 @@ onMounted(() => {
 
     <!-- 每日打卡 -->
     <div class="checkin-section">
-      <button class="checkin-btn" @click="addCheckinPoints" :disabled="loading">
-        <PhCalendar :size="20" /> {{ loading ? '打卡中...' : '每日打卡 +5积分' }}
+      <button class="checkin-btn" @click="addCheckinPoints" :disabled="loading || todayChecked">
+        <PhCalendar :size="20" /> {{ todayChecked ? '今日已打卡' : loading ? '打卡中...' : '每日打卡 +5积分' }}
       </button>
     </div>
 
@@ -176,6 +191,7 @@ onMounted(() => {
       <button :class="{ active: activeTab === 'badges' }" @click="activeTab = 'badges'">徽章</button>
       <button :class="{ active: activeTab === 'records' }" @click="activeTab = 'records'">积分记录</button>
       <button :class="{ active: activeTab === 'rules' }" @click="activeTab = 'rules'">积分规则</button>
+      <button :class="{ active: activeTab === 'exchange' }" @click="activeTab = 'exchange'">积分兑换</button>
     </div>
 
     <!-- 排行榜 -->
