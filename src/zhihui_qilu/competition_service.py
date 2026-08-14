@@ -13,20 +13,18 @@ class Competition(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4())[:8])
     name: str
     category: str
-    level: str = "国家级"
+    level: str = "A类"
     organizer: str = ""
-    website: str = ""
-    description: str = ""
+    awards: dict[str, int] = Field(default_factory=dict)
     teamSize: str = "个人"
-    time: str = ""
-    registrationDeadline: str = ""
+    schoolParticipants: str = "常见参加人数"
     difficulty: str = "中"
     skills: list[str] = Field(default_factory=list)
-    awards: list[str] = Field(default_factory=list)
     tips: str = ""
+    isAlevel: bool = True
+    year: str = ""
+    note: str = ""
     isActive: bool = True
-    createdAt: str = ""
-    updatedAt: str = ""
 
 
 class CompetitionService:
@@ -74,28 +72,24 @@ class CompetitionService:
 
     def create(self, data: dict[str, Any]) -> dict[str, Any]:
         """Create a new competition."""
-        from datetime import datetime
         competitions = self._load()
-        now = datetime.now().isoformat()
         
         competition = {
             "id": data.get("id", str(uuid4())[:8]),
             "name": data.get("name", ""),
             "category": data.get("category", ""),
-            "level": data.get("level", "国家级"),
+            "level": data.get("level", "A类"),
             "organizer": data.get("organizer", ""),
-            "website": data.get("website", ""),
-            "description": data.get("description", ""),
+            "awards": data.get("awards", {}),
             "teamSize": data.get("teamSize", "个人"),
-            "time": data.get("time", ""),
-            "registrationDeadline": data.get("registrationDeadline", ""),
+            "schoolParticipants": data.get("schoolParticipants", "常见参加人数"),
             "difficulty": data.get("difficulty", "中"),
             "skills": data.get("skills", []),
-            "awards": data.get("awards", []),
             "tips": data.get("tips", ""),
+            "isAlevel": data.get("isAlevel", True),
+            "year": data.get("year", ""),
+            "note": data.get("note", ""),
             "isActive": data.get("isActive", True),
-            "createdAt": now,
-            "updatedAt": now,
         }
         
         competitions.append(competition)
@@ -104,18 +98,11 @@ class CompetitionService:
 
     def update(self, competition_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
         """Update an existing competition."""
-        from datetime import datetime
         competitions = self._load()
         
         for i, comp in enumerate(competitions):
             if comp.get("id") == competition_id:
-                now = datetime.now().isoformat()
-                competitions[i] = {
-                    **comp,
-                    **data,
-                    "id": competition_id,
-                    "updatedAt": now,
-                }
+                competitions[i] = {**comp, **data, "id": competition_id}
                 self._save(competitions)
                 return competitions[i]
         
@@ -151,9 +138,6 @@ class CompetitionService:
             imported = 0
             for comp in new_competitions:
                 if comp.get("id") not in existing_ids:
-                    from datetime import datetime
-                    comp["createdAt"] = datetime.now().isoformat()
-                    comp["updatedAt"] = datetime.now().isoformat()
                     existing.append(comp)
                     imported += 1
             
@@ -177,7 +161,6 @@ class CompetitionService:
             searchable = [
                 comp.get("name", ""),
                 comp.get("category", ""),
-                comp.get("description", ""),
                 comp.get("organizer", ""),
                 " ".join(comp.get("skills", [])),
             ]
