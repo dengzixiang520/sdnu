@@ -1195,3 +1195,300 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
     padding: 6px 4px;
   }
 }
+/* ==================== 暖心空间 - 辅导员功能样式 ==================== */
+
+/* 预警总览 */
+.alert-overview {
+  background: rgba(255, 254, 248, 0.98);
+  border: 1px solid #d8ded4;
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.alert-overview .section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #eef1ea;
+}
+
+.alert-overview .section-header div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.alert-overview h2 {
+  font-size: 20px;
+  color: #172b2a;
+  margin: 0;
+}
+
+.refresh-btn {
+  padding: 8px 16px;
+  background: #f5f4eb;
+  border: 1px solid #d8ded4;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.refresh-btn:hover {
+  background: #eef1ea;
+}
+
+.alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.alert-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: #fffef8;
+  border: 1px solid #d8ded4;
+  border-radius: 12px;
+  transition: all 0.2s;
+}
+
+.alert-item:hover {
+  box-shadow: 0 4px 12px rgba(25, 58, 55, 0.08);
+}
+
+.alert-item.red {
+  border-left: 4px solid #ff4d4f;
+  background: #fff1f0;
+}
+
+.alert-item.orange {
+  border-left: 4px solid #ff7a45;
+  background: #fff7e6;
+}
+
+.alert-item.yellow {
+  border-left: 4px solid #faad14;
+  background: #fffbe6;
+}
+
+.alert-item.green {
+  border-left: 4px solid #52c41a;
+  background: #f6ffed;
+}
+
+.alert-level {
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.alert-item.red .alert-level { background: #ff4d4f; color: white; }
+.alert-item.orange .alert-level { background: #ff7a45; color: white; }
+.alert-item.yellow .alert-level { background: #faad14; color: white; }
+.alert-item.green .alert-level { background: #52c41a; color: white; }
+
+.alert-student {
+  font-weight: 600;
+  color: #172b2a;
+}
+
+.alert-reason {
+  color: #667572;
+  font-size: 14px;
+}
+
+.alert-time {
+  margin-left: auto;
+  color: #999;
+  font-size: 13px;
+}
+
+/* 谈心台账 */
+.talk-ledger {
+  background: rgba(255, 254, 248, 0.98);
+  border: 1px solid #d8ded4;
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.talk-ledger .section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #eef1ea;
+}
+
+.talk-ledger .section-header div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.talk-ledger h2 {
+  font-size: 20px;
+  color: #172b2a;
+  margin: 0;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.add-btn, .export-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.add-btn {
+  background: #397f72;
+  color: white;
+  border: none;
+}
+
+.add-btn:hover {
+  background: #2d6659;
+}
+
+.export-btn {
+  background: #f5f4eb;
+  border: 1px solid #d8ded4;
+  color: #172b2a;
+}
+
+.export-btn:hover:not(:disabled) {
+  background: #eef1ea;
+}
+
+.export-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 谈心记录表单 */
+.talk-form {
+  background: #f5f4eb;
+  border: 1px solid #d8ded4;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.form-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.form-row label {
+  flex: 1;
+}
+
+.talk-form label {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.talk-form input,
+.talk-form textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d8ded4;
+  border-radius: 8px;
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.talk-form textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.submit-btn {
+  padding: 10px 24px;
+  background: #397f72;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.submit-btn:hover {
+  background: #2d6659;
+}
+
+/* 谈心记录列表 */
+.talk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.talk-item {
+  background: #fffef8;
+  border: 1px solid #d8ded4;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.talk-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eef1ea;
+}
+
+.talk-student {
+  font-weight: 600;
+  color: #172b2a;
+  font-size: 16px;
+}
+
+.talk-time {
+  color: #667572;
+  font-size: 14px;
+}
+
+.talk-content p {
+  margin: 8px 0;
+  color: #526764;
+  line-height: 1.6;
+}
+
+.talk-content strong {
+  color: #172b2a;
+}
+
+/* 空状态 */
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 15px;
+}

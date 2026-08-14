@@ -1,4 +1,4 @@
-"""Task 2 services: warm guidance, check-ins, privacy-safe alerts, and counselor tools."""
+﻿"""Task 2 services: warm guidance, check-ins, privacy-safe alerts, and counselor tools."""
 
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
@@ -73,6 +73,22 @@ class WellbeingService:
         return message
 
     async def list_wall_messages(self) -> list[WallMessage]:
+        """Return warm-card content only, ordered from newest to oldest."""
+        return sorted(self._wall_messages, key=lambda item: item.published_at, reverse=True)
+
+    async def list_counselor_alerts(self) -> list[CounselorAlert]:
+        """Return all counselor alerts for staff view."""
+        records = await self._memory.query(user_id="", tier=MemoryTier.SHORT_TERM, category="wellbeing.counselor_alert", permitted_scopes={AccessScope.AUTHORIZED_STAFF, AccessScope.SYSTEM_ONLY})
+        alerts = []
+        for record in records:
+            try:
+                alert = CounselorAlert.model_validate(record.value)
+                alert_dict = alert.model_dump()
+                alert_dict["created_at"] = record.created_at.isoformat()
+                alerts.append(alert_dict)
+            except Exception:
+                continue
+        return alerts
         """Return warm-card content only, ordered from newest to oldest."""
         return sorted(self._wall_messages, key=lambda item: item.published_at, reverse=True)
 
