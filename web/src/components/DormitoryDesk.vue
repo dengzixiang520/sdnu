@@ -1,6 +1,6 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { command } from '../api'
+import { command, requestJson } from '../api'
 
 // 课程颜色映射
 const courseColors: Record<string, { bg: string, border: string, text: string }> = {
@@ -60,14 +60,18 @@ function getOrAssignColor(title: string): { bg: string, border: string, text: st
 // 加载已保存的课表
 async function loadSavedTimetable() {
   try {
-    const response = await fetch('/api/v1/timetable/saved')
-    const result = await response.json()
+    const result = await requestJson<{ success: boolean; events: TimetableEvent[] }>(
+      '/api/v1/timetable/saved', {}, '读取已保存课表失败')
     if (result.success && result.events.length > 0) {
       events.value = result.events
       parseMessage.value = `已加载保存的课表（${result.events.length}个课程）`
     }
   } catch (err) {
-    console.log('没有已保存的课表')
+    // 首次运行没有课表属于正常状态，不打扰用户；真正的故障才提示。
+    const message = err instanceof Error ? err.message : ''
+    if (message && !message.includes('不存在') && !message.includes('为空')) {
+      parseMessage.value = message
+    }
   }
 }
 
@@ -241,20 +245,22 @@ async function importTimetable() {
   loading.value = true
   error.value = ''
   try {
-    const response = await fetch('/api/v1/timetable/parse-text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: timetable.value })
-    })
-    const result = await response.json()
+    const result = await requestJson<{ success: boolean; events: TimetableEvent[]; message?: string }>(
+      '/api/v1/timetable/parse-text',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: timetable.value })
+      },
+      '课表解析失败')
     if (result.success) {
       events.value = result.events
-      parseMessage.value = result.message
+      parseMessage.value = result.message ?? ''
     } else {
-      error.value = result.message || '解析失败'
+      error.value = result.message || '未能识别出任何课程，请检查格式'
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'AI解析失败'
+    error.value = err instanceof Error ? err.message : '课表解析失败'
   } finally {
     loading.value = false
   }
@@ -264,30 +270,24 @@ async function uploadFile(file: File) {
   loading.value = true
   error.value = ''
   uploadProgress.value = '正在上传和解析...'
-  
+
   try {
     const formData = new FormData()
     formData.append('file', file)
-    
-    const response = await fetch('/api/v1/timetable/upload', {
-      method: 'POST',
-      body: formData
-    })
-    
-    const result = await response.json()
-    
+
+    const result = await requestJson<{ success: boolean; events: TimetableEvent[]; message?: string }>(
+      '/api/v1/timetable/upload', { method: 'POST', body: formData }, '上传失败')
+
     if (result.success) {
       events.value = result.events
-      parseMessage.value = result.message
-      uploadProgress.value = ''
+      parseMessage.value = result.message ?? ''
     } else {
-      error.value = result.message || '上传失败'
-      uploadProgress.value = ''
+      error.value = result.message || '未能从文件中识别出课程'
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : '上传失败'
-    uploadProgress.value = ''
   } finally {
+    uploadProgress.value = ''
     loading.value = false
   }
 }
@@ -445,10 +445,10 @@ function getDayOfWeek(dateStr: string) {
       <!-- 文件上传模式 -->
       <div v-else class="file-upload-section">
         <div class="upload-area" :class="{ dragover }" @drop="handleDrop" @dragover="handleDragOver" @dragleave="handleDragLeave" @click="triggerFileInput">
-          <input ref="fileInput" type="file" accept=".txt,.csv,.xlsx,.xls,.ics,.pdf,.png,.jpg,.jpeg,.bmp" style="display: none" @change="handleFileSelect">
+          <input ref="fileInput" type="file" accept=".txt,.csv,.xlsx,.xls,.ics,.png,.jpg,.jpeg,.bmp" style="display: none" @change="handleFileSelect">
           <div class="upload-icon">📁</div>
           <p class="upload-text">{{ uploadProgress || '点击或拖拽文件到此处上传' }}</p>
-          <p class="upload-hint">支持 .txt .csv .xlsx .xls .ics .pdf .png .jpg 格式</p>
+          <p class="upload-hint">支持 .txt .csv .xlsx .xls .ics .png .jpg（PDF 解析尚未接入）</p>
         </div>
       </div>
       

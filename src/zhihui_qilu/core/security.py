@@ -14,7 +14,15 @@ from zhihui_qilu.core.models import AgentRequest, SecurityEvent
 class SecurityIsolationGateway:
     """Enforce least privilege before routing and redact content before disclosure."""
 
-    _INJECTION_PATTERNS = (r"ignore\s+(all\s+)?previous\s+instructions", r"system\s+prompt", r"忽略.{0,12}(指令|规则)", r"越狱")
+    _INJECTION_PATTERNS = tuple(
+        re.compile(pattern, flags=re.IGNORECASE)
+        for pattern in (
+            r"ignore\s+(all\s+)?previous\s+instructions",
+            r"system\s+prompt",
+            r"忽略.{0,12}(指令|规则)",
+            r"越狱",
+        )
+    )
     _PII_PATTERNS = (
         (re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"), "[PHONE_REDACTED]"),
         (re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+"), "[EMAIL_REDACTED]"),
@@ -32,8 +40,7 @@ class SecurityIsolationGateway:
             self._emit(SecurityEventType.ACCESS_DENIED, request, {"reason": "role_not_allowed"})
             raise AccessDeniedError("当前角色无权调用该能力")
         self._enforce_rate_limit(request)
-        text = request.text.lower()
-        if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in self._INJECTION_PATTERNS):
+        if any(pattern.search(request.text) for pattern in self._INJECTION_PATTERNS):
             self._emit(SecurityEventType.PROMPT_INJECTION, request, {"reason": "matched_policy_pattern"})
             raise SecurityViolationError("请求包含不安全的指令模式，已被安全网关拦截")
         return request.model_copy(update={"text": self.redact(request.text, request)})
@@ -56,6 +63,7 @@ class SecurityIsolationGateway:
     def _enforce_rate_limit(self, request: AgentRequest) -> None:
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(minutes=1)
+        self._prune_idle_users(cutoff, now)
         bucket = self._requests[request.context.user_id]
         while bucket and bucket[0] <= cutoff:
             bucket.popleft()
@@ -63,6 +71,18 @@ class SecurityIsolationGateway:
             self._emit(SecurityEventType.RATE_LIMIT, request, {"reason": "per_minute_limit"})
             raise SecurityViolationError("请求过于频繁，请稍后再试")
         bucket.append(now)
+
+    def _prune_idle_users(self, cutoff: datetime, now: datetime) -> None:
+        """Drop empty or long-idle buckets so the in-memory limiter stays bounded."""
+        if len(self._requests) < 256:
+            return
+        idle_threshold = now - timedelta(minutes=5)
+        for user_id in list(self._requests):
+            bucket = self._requests[user_id]
+            while bucket and bucket[0] <= cutoff:
+                bucket.popleft()
+            if not bucket or bucket[-1] <= idle_threshold:
+                del self._requests[user_id]
 
     def _emit(self, event_type: SecurityEventType, request: AgentRequest, details: dict[str, str]) -> None:
         if self._audit_sink:

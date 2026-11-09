@@ -1,4 +1,7 @@
 @echo off
-cd /d "D:\study-race\race\SDNU人工智能\zhihui_qilu\web"
-npm run dev
+chcp 936 >/dev/null
+title ZHQ-Frontend
+cd /d "%~dp0web"
+echo 正在启动前端 http://localhost:5173 ...
+call npm run dev
 pause

@@ -1,7 +1,7 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { PhArrowSquareOut, PhFilePlus, PhFunnel, PhLightbulb, PhMagnifyingGlass, PhNewspaper, PhRocketLaunch, PhUsersThree, PhTrophy, PhCalendar, PhUsers, PhStar, PhArrowLeft, PhTarget, PhMedal, PhClock, PhBookOpen, PhUpload, PhChartBar } from '@phosphor-icons/vue'
-import { command } from '../api'
+import { command, requestJson } from '../api'
 import { useIdentity } from '../identity'
 
 type Tool = 'submit' | 'team' | 'proposal' | 'review' | 'upload'
@@ -41,8 +41,8 @@ async function fetchCompetitions() {
     const params = new URLSearchParams()
     if (category.value !== '全部') params.append('category', category.value)
     if (search.value) params.append('keyword', search.value)
-    const response = await fetch(`/api/v1/competitions?${params}`)
-    const data = await response.json()
+    const data = await requestJson<{ success: boolean; data: { competitions: Competition[]; categories: string[] } }>(
+      `/api/v1/competitions?${params}`, {}, '竞赛库加载失败')
     if (data.success) {
       competitions.value = data.data.competitions
       categories.value = ['全部', ...data.data.categories]

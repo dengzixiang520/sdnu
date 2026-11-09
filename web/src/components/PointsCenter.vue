@@ -1,7 +1,8 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { PhTrophy, PhStar, PhMedal, PhChartLine, PhUser, PhCalendar, PhGift } from '@phosphor-icons/vue'
 import { useIdentity } from '../identity'
+import { requestJson } from '../api'
 import ExchangeShop from './ExchangeShop.vue'
 
 interface UserPoints {
@@ -41,42 +42,51 @@ const leaderboard = ref<UserPoints[]>([])
 const badges = ref<Badge[]>([])
 const records = ref<PointsRecord[]>([])
 const loading = ref(false)
+const loadError = ref('')
 
 const currentUserId = computed(() => identity.value.userId)
 const currentUserName = computed(() => identity.value.displayName)
 
 async function fetchUserPoints() {
   try {
-    const response = await fetch(`/api/v1/points/user/${currentUserId.value}`)
-    const data = await response.json()
+    const data = await requestJson<{ success: boolean; data: { user: UserPoints } }>(
+      `/api/v1/points/user/${currentUserId.value}`, {}, '获取积分失败')
     if (data.success && data.data.user) {
       userPoints.value = data.data.user
     }
-  } catch (err) { console.log('获取用户积分失败') }
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '获取积分失败'
+  }
 }
 
 async function fetchLeaderboard() {
   try {
-    const response = await fetch('/api/v1/points/leaderboard?limit=20')
-    const data = await response.json()
+    const data = await requestJson<{ success: boolean; data: { leaderboard: UserPoints[] } }>(
+      '/api/v1/points/leaderboard?limit=20', {}, '获取排行榜失败')
     if (data.success) leaderboard.value = data.data.leaderboard
-  } catch (err) { console.log('获取排行榜失败') }
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '获取排行榜失败'
+  }
 }
 
 async function fetchBadges() {
   try {
-    const response = await fetch('/api/v1/points/badges')
-    const data = await response.json()
+    const data = await requestJson<{ success: boolean; data: { badges: Badge[] } }>(
+      '/api/v1/points/badges', {}, '获取徽章失败')
     if (data.success) badges.value = data.data.badges
-  } catch (err) { console.log('获取徽章失败') }
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '获取徽章失败'
+  }
 }
 
 async function fetchRecords() {
   try {
-    const response = await fetch(`/api/v1/points/user/${currentUserId.value}/records`)
-    const data = await response.json()
+    const data = await requestJson<{ success: boolean; data: { records: PointsRecord[] } }>(
+      `/api/v1/points/user/${currentUserId.value}/records`, {}, '获取记录失败')
     if (data.success) records.value = data.data.records
-  } catch (err) { console.log('获取记录失败') }
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '获取记录失败'
+  }
 }
 
 const todayChecked = ref(false)
@@ -95,14 +105,19 @@ async function addCheckinPoints() {
   }
   loading.value = true
   try {
-    const response = await fetch(`/api/v1/points/checkin/${currentUserId.value}?user_name=${encodeURIComponent(currentUserName.value)}`, { method: 'POST' })
-    const data = await response.json()
+    const data = await requestJson<{ success: boolean; message?: string }>(
+      `/api/v1/points/checkin/${currentUserId.value}?user_name=${encodeURIComponent(currentUserName.value)}`,
+      { method: 'POST' }, '打卡失败')
     if (data.success) {
       todayChecked.value = true
       await fetchUserPoints()
       await fetchRecords()
+    } else {
+      loadError.value = data.message || '打卡失败'
     }
-  } catch (err) { console.log('打卡积分失败') }
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '打卡失败'
+  }
   finally { loading.value = false }
 }
 
@@ -143,6 +158,11 @@ onMounted(async () => {
         <p>参与竞赛、完成打卡，积累积分兑换奖励</p>
       </div>
     </header>
+
+    <div v-if="loadError" class="inline-error dismissible-error page-error" role="alert">
+      <span>{{ loadError }}</span>
+      <button type="button" @click="loadError = ''">知道了</button>
+    </div>
 
     <!-- 积分概览卡片 -->
     <div class="points-overview">

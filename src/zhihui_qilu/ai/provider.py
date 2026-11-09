@@ -1,5 +1,6 @@
 """Language-model provider ports and the DeepSeek HTTP adapter."""
 
+import json
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Literal
@@ -44,10 +45,23 @@ class DeepSeekProvider(LanguageModelProvider):
         self._endpoint = f"{base_url.rstrip('/')}/chat/completions"
         self._model = model
         self._timeout = httpx.Timeout(connect=connect_timeout, read=read_timeout, write=20.0, pool=10.0)
+        self._headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        self._client: httpx.AsyncClient | None = None
 
     @property
     def available(self) -> bool:
         return bool(self._api_key)
+
+    def _ensure_client(self) -> httpx.AsyncClient:
+        """Reuse one pooled client across requests to avoid TCP/TLS handshake churn."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=self._timeout, headers=self._headers)
+        return self._client
+
+    async def close(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+        self._client = None
 
     def _payload(self, messages: list[ChatMessage], *, temperature: float, stream: bool) -> dict[str, object]:
         return {
@@ -59,44 +73,42 @@ class DeepSeekProvider(LanguageModelProvider):
 
     async def complete(self, messages: list[ChatMessage], *, temperature: float = 0.6) -> str:
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.post(
-                    self._endpoint,
-                    headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
-                    json=self._payload(messages, temperature=temperature, stream=False),
-                )
-                response.raise_for_status()
-                data = response.json()
-                content = data["choices"][0]["message"]["content"]
-                if not isinstance(content, str) or not content.strip():
-                    raise ProviderUnavailableError("DeepSeek returned an empty completion")
-                return content.strip()
+            client = self._ensure_client()
+            response = await client.post(
+                self._endpoint,
+                json=self._payload(messages, temperature=temperature, stream=False),
+            )
+            response.raise_for_status()
+            data = response.json()
+            content = data["choices"][0]["message"]["content"]
+            if not isinstance(content, str) or not content.strip():
+                raise ProviderUnavailableError("DeepSeek returned an empty completion")
+            return content.strip()
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
             raise ProviderUnavailableError("DeepSeek request failed") from exc
 
     async def stream(self, messages: list[ChatMessage], *, temperature: float = 0.6) -> AsyncIterator[str]:
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                async with client.stream(
-                    "POST",
-                    self._endpoint,
-                    headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
-                    json=self._payload(messages, temperature=temperature, stream=True),
-                ) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        payload = line[6:].strip()
-                        if payload == "[DONE]":
-                            return
-                        try:
-                            data = __import__("json").loads(payload)
-                            delta = data["choices"][0]["delta"].get("content")
-                        except (KeyError, TypeError, ValueError):
-                            continue
-                        if isinstance(delta, str) and delta:
-                            yield delta
+            client = self._ensure_client()
+            async with client.stream(
+                "POST",
+                self._endpoint,
+                json=self._payload(messages, temperature=temperature, stream=True),
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    payload = line[6:].strip()
+                    if payload == "[DONE]":
+                        return
+                    try:
+                        data = json.loads(payload)
+                        delta = data["choices"][0]["delta"].get("content")
+                    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                        continue
+                    if isinstance(delta, str) and delta:
+                        yield delta
         except httpx.HTTPError as exc:
             raise ProviderUnavailableError("DeepSeek streaming request failed") from exc
 

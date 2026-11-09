@@ -1,4 +1,4 @@
-﻿.env
+.env
 .venv/
 __pycache__/
 .pytest_cache/
@@ -13,4 +13,6 @@ web/dist/
 *.log
 *.body
 
-data/
+# 绿色便携运行时与构建残留（体积大，可由 启动.bat 自动重建）
+runtime/
+build/

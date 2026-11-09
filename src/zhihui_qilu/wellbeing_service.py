@@ -1,7 +1,9 @@
-﻿"""Task 2 services: warm guidance, check-ins, privacy-safe alerts, and counselor tools."""
+"""Task 2 services: warm guidance, check-ins, privacy-safe alerts, and counselor tools."""
 
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
+
+from pydantic import ValidationError
 
 from zhihui_qilu.config import Settings
 from zhihui_qilu.core.enums import AccessScope, MemoryTier, SensitivityLevel
@@ -14,6 +16,8 @@ from zhihui_qilu.wellbeing_models import (
     AmbientTrack,
     CounselorAlert,
     GuideControlCommand,
+    HappyShare,
+    HappyShareDraft,
     MoodCheckIn,
     MoodCheckInResult,
     MoodWeather,
@@ -23,11 +27,40 @@ from zhihui_qilu.wellbeing_models import (
 )
 
 
+class HappyShareRejected(Exception):
+    """Raised when a draft does not pass the deterministic positivity gate.
+
+    ``redirect`` tells the UI which safer surface to point the student at: ``support``
+    for high-risk language (crisis path) and ``checkin`` for ordinary bad days.
+    """
+
+    def __init__(self, message: str, redirect: str) -> None:
+        super().__init__(message)
+        self.message = message
+        self.redirect = redirect
+
+
 class WellbeingService:
     """Implements non-diagnostic wellbeing workflows on the platform memory boundary."""
 
     _HIGH_RISK_TERMS = ("自杀", "自殘", "自残", "结束生命", "不想活", "suicide", "kill myself")
     _NEGATIVE_WEATHER = {MoodWeather.RAINY, MoodWeather.STORMY}
+
+    # 开心分享墙的确定性闸门。刻意不使用大模型判定：与危机拦截同源，
+    # 结果可复现、可解释，也不会把学生的原文发到外部服务。
+    _SHARE_NEGATIVE_TERMS = (
+        "难过", "伤心", "痛苦", "崩溃", "绝望", "焦虑", "抑郁", "烦躁", "好烦", "烦死",
+        "讨厌", "想哭", "失眠", "压力大", "心累", "累死", "没意思", "不想上学", "不想上班",
+        "失败", "被骂", "吵架", "分手", "孤独", "难受", "emo", "摆烂", "活着没劲",
+    )
+    _SHARE_CRISIS_MESSAGE = (
+        "这条内容里有需要认真对待的信号，先不发布。"
+        "请用「心情记录」写下此刻的状态，或直接拨打 24 小时心理援助热线 12356。"
+    )
+    _SHARE_NEGATIVE_MESSAGE = (
+        "分享墙只收开心的事。今天如果不太好受，用「心情记录」写下来吧——"
+        "那一条只有你和辅导员能看到，不会公开。"
+    )
 
     def __init__(self, memory: MemorySystem, gateway: SecurityIsolationGateway, settings: Settings) -> None:
         self._memory = memory
@@ -76,26 +109,114 @@ class WellbeingService:
         """Return warm-card content only, ordered from newest to oldest."""
         return sorted(self._wall_messages, key=lambda item: item.published_at, reverse=True)
 
-    async def list_counselor_alerts(self) -> list[CounselorAlert]:
-        """Return all counselor alerts for staff view."""
-        records = await self._memory.query(user_id="", tier=MemoryTier.SHORT_TERM, category="wellbeing.counselor_alert", permitted_scopes={AccessScope.AUTHORIZED_STAFF, AccessScope.SYSTEM_ONLY})
-        alerts = []
+    async def list_counselor_alerts(self) -> list[dict[str, object]]:
+        """Return all counselor alerts across students for the authorized staff view.
+
+        Alerts are stored per-student, so staff retrieval is a cross-owner lookup that
+        must always pass explicit staff scopes; the default OWNER scope is never widened.
+        Only the minimal alert record is returned, never the student's reflection text.
+        """
+        records = await self._memory.query(
+            user_id=None,
+            tier=MemoryTier.SHORT_TERM,
+            category="wellbeing.counselor_alert",
+            permitted_scopes={AccessScope.AUTHORIZED_STAFF, AccessScope.SYSTEM_ONLY},
+        )
+        alerts: list[dict[str, object]] = []
         for record in records:
             try:
                 alert = CounselorAlert.model_validate(record.value)
-                alert_dict = alert.model_dump()
-                alert_dict["created_at"] = record.created_at.isoformat()
-                alerts.append(alert_dict)
-            except Exception:
+            except ValidationError:
                 continue
-        return alerts
-        """Return warm-card content only, ordered from newest to oldest."""
-        return sorted(self._wall_messages, key=lambda item: item.published_at, reverse=True)
+            payload = alert.model_dump(mode="json")
+            payload["created_at"] = record.created_at.isoformat()
+            alerts.append(payload)
+        return sorted(alerts, key=lambda item: str(item["created_at"]), reverse=True)
 
     def build_talk_ledger(self, source: TalkLedgerInput) -> TalkLedgerEntry:
         """Create a counselor-reviewable ledger from confirmed facts, never raw audio/transcripts."""
         topic_summary = "；".join(item.strip() for item in source.topics if item.strip())
         return TalkLedgerEntry(student_id=source.student_id, counselor_name=source.counselor_name, meeting_at=source.meeting_at, location=source.location, topic_summary=topic_summary, agreed_actions=source.agreed_actions, follow_up_at=source.follow_up_at)
+
+    async def publish_happy_share(self, user_id: str, session_id: str, author_name: str, draft: HappyShareDraft) -> HappyShare:
+        """Screen a positive moment deterministically, then publish it to everyone.
+
+        Rejection never silently drops the text: the student is pointed at the private
+        check-in surface (or the crisis line) instead of being told "发布失败".
+        """
+        verdict = self.screen_share_content(draft.content)
+        if verdict == "crisis":
+            raise HappyShareRejected(self._SHARE_CRISIS_MESSAGE, "support")
+        if verdict == "negative":
+            raise HappyShareRejected(self._SHARE_NEGATIVE_MESSAGE, "checkin")
+        share = HappyShare(
+            author_id=user_id,
+            author_name="匿名同学" if draft.anonymous else (author_name.strip()[:40] or "同学"),
+            content=draft.content.strip(),
+            image_data_url=draft.image_data_url,
+        )
+        await self._memory.put(
+            MemoryRecord(
+                record_id=share.share_id,
+                user_id=user_id,
+                session_id=session_id,
+                tier=MemoryTier.LONG_TERM,
+                category="wellbeing.happy_share",
+                value=share.model_dump(mode="json"),
+                source_agent="wellbeing-service",
+                access_scope=AccessScope.PUBLIC,
+                sensitivity=SensitivityLevel.PUBLIC,
+                expires_at=None,
+            )
+        )
+        return share
+
+    async def list_happy_shares(self, limit: int = 30) -> list[HappyShare]:
+        """Return every public share, newest first; no owner filter is applied."""
+        records = await self._memory.query(
+            user_id=None,
+            tier=MemoryTier.LONG_TERM,
+            category="wellbeing.happy_share",
+            permitted_scopes={AccessScope.PUBLIC},
+        )
+        shares: list[HappyShare] = []
+        for record in records:
+            try:
+                shares.append(HappyShare.model_validate(record.value))
+            except ValidationError:
+                continue
+        shares.sort(key=lambda item: item.created_at, reverse=True)
+        return shares[: max(1, min(limit, 100))]
+
+    async def cheer_happy_share(self, share_id: str) -> HappyShare | None:
+        """Increment one share's encouragement counter and return the updated record."""
+        records = await self._memory.query(
+            user_id=None,
+            tier=MemoryTier.LONG_TERM,
+            category="wellbeing.happy_share",
+            permitted_scopes={AccessScope.PUBLIC},
+        )
+        for record in records:
+            if str(record.value.get("share_id")) != share_id:
+                continue
+            try:
+                share = HappyShare.model_validate(record.value)
+            except ValidationError:
+                return None
+            updated = share.model_copy(update={"cheer_count": share.cheer_count + 1})
+            await self._memory.put(record.model_copy(update={"value": updated.model_dump(mode="json")}))
+            return updated
+        return None
+
+    @classmethod
+    def screen_share_content(cls, content: str) -> str:
+        """Classify a draft as ``ok``, ``crisis``, or ``negative`` without any model call."""
+        normalized = content.lower().replace(" ", "")
+        if any(term.lower().replace(" ", "") in normalized for term in cls._HIGH_RISK_TERMS):
+            return "crisis"
+        if any(term.lower() in normalized for term in cls._SHARE_NEGATIVE_TERMS):
+            return "negative"
+        return "ok"
 
     def _as_record(self, user_id: str, session_id: str, check_in: MoodCheckIn) -> MemoryRecord:
         # Reflection is restricted to the student context; staff retrieval uses separate alert records.
@@ -136,7 +257,7 @@ class WellbeingService:
             AlertLevel.GREEN: "已收到你的心情记录。照顾好自己，有需要时暖心空间一直在。",
             AlertLevel.YELLOW: "我注意到你最近可能有些累。要不要找一个舒服的时间聊聊？",
             AlertLevel.ORANGE: "你最近承受了不少。建议预约一次辅导员谈心或校内心理支持服务。",
-            AlertLevel.RED: "你的安全很重要。请尽快联系身边可信任的人、辅导员或当地紧急支持服务；我们也会发出人工关怀提醒。",
+            AlertLevel.RED: "你的安全很重要。请尽快联系身边可信任的人、辅导员，或拨打 24 小时心理援助热线 12356；我们也会发出人工关怀提醒。",
         }
         return MoodCheckInResult(alert_level=level, support_message=messages[level], booking_suggested=level in {AlertLevel.ORANGE, AlertLevel.RED}, human_follow_up_requested=level == AlertLevel.RED)
 

@@ -3,7 +3,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from zhihui_qilu.api.dependencies import get_development_context
 from zhihui_qilu.core.errors import PlatformError
@@ -31,5 +31,13 @@ async def execute_command(
     payload = {**body.payload, "action": body.action}
     try:
         return await request.app.state.container.router.execute(AgentRequest(capability=body.capability, text=body.text, payload=payload, context=context))
+    except ValidationError as exc:
+        # 业务模型校验失败属于调用方参数问题，应回 4xx 并说明哪个字段不对，
+        # 而不是冒泡成 500 让前端只看到"服务器错误"。
+        fields = "、".join(str(item["loc"][-1]) for item in exc.errors() if item.get("loc")) or "参数"
+        raise HTTPException(
+            status_code=422,
+            detail=f"请求参数不合法：{fields}",
+        ) from exc
     except PlatformError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

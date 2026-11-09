@@ -1,7 +1,8 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { PhShoppingBag, PhGift, PhTicket, PhCheckCircle, PhMapPin } from '@phosphor-icons/vue'
 import { useIdentity } from '../identity'
+import { requestJson } from '../api'
 
 interface Product {
   id: string
@@ -35,6 +36,7 @@ const showConfirm = ref(false)
 const selectedProduct = ref<Product | null>(null)
 const exchangeResult = ref<any>(null)
 const category = ref('全部')
+const loadError = ref('')
 
 const currentUserId = computed(() => identity.value.userId)
 const currentUserName = computed(() => identity.value.displayName)
@@ -51,18 +53,22 @@ const filteredProducts = computed(() => {
 
 async function fetchProducts() {
   try {
-    const response = await fetch('/api/v1/exchange/products')
-    const data = await response.json()
+    const data = await requestJson<{ success: boolean; data: { products: Product[] } }>(
+      '/api/v1/exchange/products', {}, '获取商品失败')
     if (data.success) products.value = data.data.products
-  } catch (err) { console.log('获取商品失败') }
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '获取商品失败'
+  }
 }
 
 async function fetchExchanges() {
   try {
-    const response = await fetch(`/api/v1/exchange/user/${currentUserId.value}`)
-    const data = await response.json()
+    const data = await requestJson<{ success: boolean; data: { exchanges: ExchangeRecord[] } }>(
+      `/api/v1/exchange/user/${currentUserId.value}`, {}, '获取兑换记录失败')
     if (data.success) exchanges.value = data.data.exchanges
-  } catch (err) { console.log('获取兑换记录失败') }
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '获取兑换记录失败'
+  }
 }
 
 function selectProduct(product: Product) {
@@ -75,7 +81,7 @@ async function confirmExchange() {
   if (!selectedProduct.value) return
   loading.value = true
   try {
-    const response = await fetch('/api/v1/exchange/redeem', {
+    const data = await requestJson<{ success: boolean; data: Record<string, unknown> }>('/api/v1/exchange/redeem', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -83,17 +89,16 @@ async function confirmExchange() {
         user_name: currentUserName.value,
         product_id: selectedProduct.value.id
       })
-    })
-    const data = await response.json()
+    }, '兑换失败')
     if (data.success) {
       exchangeResult.value = data.data
       await fetchProducts()
       await fetchExchanges()
     } else {
-      exchangeResult.value = { error: data.detail || '兑换失败' }
+      exchangeResult.value = { error: '兑换失败' }
     }
   } catch (err) {
-    exchangeResult.value = { error: '兑换失败，请稍后重试' }
+    exchangeResult.value = { error: err instanceof Error ? err.message : '兑换失败，请稍后重试' }
   } finally {
     loading.value = false
   }
@@ -117,6 +122,10 @@ onMounted(() => {
 
 <template>
   <div class="exchange-shop">
+    <div v-if="loadError" class="inline-error dismissible-error page-error" role="alert">
+      <span>{{ loadError }}</span>
+      <button type="button" @click="loadError = ''">知道了</button>
+    </div>
     <!-- 分类筛选 -->
     <div class="exchange-categories">
       <button v-for="cat in categories" :key="cat" :class="{ active: category === cat }" @click="category = cat">

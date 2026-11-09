@@ -1,9 +1,9 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, computed } from 'vue'
 import { 
   PhBookOpenText, PhChatCircleDots, PhFirstAid, PhFlowerLotus, PhLockKey, 
   PhPaperPlaneTilt, PhWind, PhWarning, PhCalendarCheck, PhNotebook,
-  PhChartLine, PhUsers, PhExport
+  PhChartLine, PhUsers, PhExport, PhPhoneCall, PhConfetti, PhImage, PhHeart
 } from '@phosphor-icons/vue'
 import { command } from '../api'
 import { useIdentity } from '../identity'
@@ -15,6 +15,10 @@ interface AlertItem { student_id: string; level: string; reason_codes: string[];
 interface TalkEntry { student_id: string; student_name: string; counselor_name: string; meeting_at: string; location: string; topic_summary: string; agreed_actions: string; follow_up_at?: string; overall_assessment: string }
 
 const { identity } = useIdentity()
+
+// 学生入口切换：有人只想记录自己，有人只想看大家的分享
+type SpaceTab = 'self' | 'share'
+const activeTab = ref<SpaceTab>('self')
 
 // 学生功能相关
 const weather = ref<Weather>('sunny')
@@ -30,6 +34,20 @@ const breathing = ref(false)
 const breathPhase = ref('准备开始')
 const breathSeconds = ref(60)
 let breathTimer: number | undefined
+
+// 开心分享墙
+interface HappyShare { share_id: string; author_name: string; content: string; image_data_url?: string | null; cheer_count: number; created_at: string }
+const shares = ref<HappyShare[]>([])
+const shareContent = ref('')
+const shareImage = ref<string | null>(null)
+const shareAnonymous = ref(false)
+const shareStatus = ref('')
+const shareError = ref('')
+const shareRedirect = ref('')
+const shareLoading = ref(false)
+const shareLoaded = ref(false)
+const cheeredIds = ref<string[]>([])
+
 
 // 辅导员功能相关
 const alerts = ref<AlertItem[]>([])
@@ -93,6 +111,141 @@ function saveJournal() {
 
 function openGuide() { window.dispatchEvent(new Event('zhq-open-guide')) }
 
+/** 校内心理支持 QQ 号：桌面浏览器无法直接唤起 QQ，提供复制更可靠。 */
+const counselorQQ = '2645256823'
+const qqCopied = ref(false)
+async function copyCounselorQQ() {
+  try {
+    await navigator.clipboard.writeText(counselorQQ)
+    qqCopied.value = true
+    window.setTimeout(() => { qqCopied.value = false }, 2000)
+  } catch {
+    // 剪贴板被浏览器策略拒绝时，退回到选中提示，至少让用户能手动复制。
+    window.prompt('复制下面的 QQ 号：', counselorQQ)
+  }
+}
+
+// ---------- 开心分享墙 ----------
+
+async function fetchShares() {
+  try {
+    const result = await command('wellbeing', 'happy_shares')
+    shares.value = (result.data.shares ?? []) as HappyShare[]
+    shareLoaded.value = true
+  } catch (reason) {
+    shareError.value = reason instanceof Error ? reason.message : '分享墙加载失败'
+  }
+}
+
+function switchTab(tab: SpaceTab) {
+  activeTab.value = tab
+  if (tab === 'share' && !shareLoaded.value) fetchShares()
+}
+
+/**
+ * 压缩后转 data URL。
+ * 现场用手机拍的照片动辄 4-8MB，直接塞进请求会超时；统一缩到长边 1280、JPEG 0.82。
+ */
+async function readAndCompress(file: File): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error('图片读取失败'))
+    reader.readAsDataURL(file)
+  })
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('图片格式不支持'))
+    img.src = dataUrl
+  })
+  const maxSide = 1280
+  const scale = Math.min(1, maxSide / Math.max(image.width, image.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(image.width * scale))
+  canvas.height = Math.max(1, Math.round(image.height * scale))
+  const context = canvas.getContext('2d')
+  if (!context) return dataUrl
+  context.drawImage(image, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL('image/jpeg', 0.82)
+}
+
+async function pickShareImage(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  shareError.value = ''
+  if (!file.type.startsWith('image/')) {
+    shareError.value = '只能选图片文件（jpg / png / webp）'
+    return
+  }
+  try {
+    const compressed = await readAndCompress(file)
+    if (compressed.length > 1_300_000) {
+      shareError.value = '这张图压完还是太大，换一张或先截图裁一下'
+      return
+    }
+    shareImage.value = compressed
+  } catch (reason) {
+    shareError.value = reason instanceof Error ? reason.message : '图片处理失败'
+  } finally {
+    input.value = ''
+  }
+}
+
+async function publishShare() {
+  shareError.value = ''
+  shareStatus.value = ''
+  shareRedirect.value = ''
+  if (!shareContent.value.trim()) {
+    shareError.value = '先写一句今天值得高兴的事'
+    return
+  }
+  shareLoading.value = true
+  try {
+    const result = await command('wellbeing', 'publish_happy_share', '', {
+      author_name: identity.value.displayName,
+      share: {
+        content: shareContent.value.trim(),
+        image_data_url: shareImage.value,
+        anonymous: shareAnonymous.value,
+      },
+    })
+    shareContent.value = ''
+    shareImage.value = null
+    shareAnonymous.value = false
+    shareStatus.value = result.message
+    await fetchShares()
+  } catch (reason) {
+    // 后端拒绝时给的是可操作的话术 + 该去哪个入口，不是一句"发布失败"
+    shareError.value = reason instanceof Error ? reason.message : '发布失败，请稍后再试'
+  } finally {
+    shareLoading.value = false
+  }
+}
+
+async function cheerShare(share: HappyShare) {
+  if (cheeredIds.value.includes(share.share_id)) return
+  try {
+    const result = await command('wellbeing', 'cheer_happy_share', '', { share_id: share.share_id })
+    const updated = result.data.share as HappyShare | undefined
+    if (updated) {
+      shares.value = shares.value.map(item => item.share_id === updated.share_id ? updated : item)
+      cheeredIds.value = [...cheeredIds.value, share.share_id]
+    }
+  } catch {
+    // 鼓励是弱交互，失败不打断浏览
+  }
+}
+
+function formatShareTime(value: string) {
+  try {
+    return new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return value
+  }
+}
+
 function startBreathing() {
   if (breathing.value) { stopBreathing(); return }
   breathing.value = true; breathSeconds.value = 60
@@ -134,7 +287,11 @@ function addTalkEntry() {
   talkEntries.value.push({ ...newTalk.value })
   newTalk.value = { student_id: '', student_name: '', counselor_name: '', meeting_at: '', location: '', topic_summary: '', agreed_actions: '', follow_up_at: '', overall_assessment: '' }
   showNewTalk.value = false
-  localStorage.setItem('zhq-talk-ledger', JSON.stringify(talkEntries.value))
+  try {
+    localStorage.setItem('zhq-talk-ledger', JSON.stringify(talkEntries.value))
+  } catch {
+    // Keep in-memory ledger if storage quota is exceeded.
+  }
 }
 
 function exportLedger(format: string = 'json') {
@@ -180,6 +337,16 @@ function exportLedger(format: string = 'json') {
   a.click(); URL.revokeObjectURL(url)
 }
 
+/** Escape text before it is concatenated into the print document's HTML. */
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 function generatePDF() {
   const printWindow = window.open('', '_blank')
   if (!printWindow) return
@@ -201,23 +368,23 @@ function generatePDF() {
   html += '@media print { body { padding: 20px; } }'
   html += '</style></head><body>'
   html += '<h1>SDNU Talk Ledger</h1>'
-  html += '<p class="subtitle">Shandong Normal University - Export Time: ' + date + '</p>'
+  html += '<p class="subtitle">Shandong Normal University - Export Time: ' + escapeHtml(date) + '</p>'
   
   talkEntries.value.forEach((entry, i) => {
     html += '<div class="record">'
     html += '<div class="record-header">Record ' + (i + 1) + '</div>'
-    html += '<div class="row"><span class="label">Student ID:</span><span class="value">' + entry.student_id + '</span></div>'
-    html += '<div class="row"><span class="label">Name:</span><span class="value">' + (entry.student_name || 'N/A') + '</span></div>'
-    html += '<div class="row"><span class="label">Counselor:</span><span class="value">' + entry.counselor_name + '</span></div>'
-    html += '<div class="row"><span class="label">Time:</span><span class="value">' + entry.meeting_at + '</span></div>'
-    html += '<div class="row"><span class="label">Location:</span><span class="value">' + entry.location + '</span></div>'
-    html += '<div class="section"><div class="section-title">Topic</div><p>' + entry.topic_summary + '</p></div>'
-    html += '<div class="section"><div class="section-title">Agreed Actions</div><p>' + entry.agreed_actions + '</p></div>'
+    html += '<div class="row"><span class="label">Student ID:</span><span class="value">' + escapeHtml(entry.student_id) + '</span></div>'
+    html += '<div class="row"><span class="label">Name:</span><span class="value">' + escapeHtml(entry.student_name || 'N/A') + '</span></div>'
+    html += '<div class="row"><span class="label">Counselor:</span><span class="value">' + escapeHtml(entry.counselor_name) + '</span></div>'
+    html += '<div class="row"><span class="label">Time:</span><span class="value">' + escapeHtml(entry.meeting_at) + '</span></div>'
+    html += '<div class="row"><span class="label">Location:</span><span class="value">' + escapeHtml(entry.location) + '</span></div>'
+    html += '<div class="section"><div class="section-title">Topic</div><p>' + escapeHtml(entry.topic_summary) + '</p></div>'
+    html += '<div class="section"><div class="section-title">Agreed Actions</div><p>' + escapeHtml(entry.agreed_actions) + '</p></div>'
     if (entry.overall_assessment) {
-      html += '<div class="section"><div class="section-title">Assessment</div><p>' + entry.overall_assessment + '</p></div>'
+      html += '<div class="section"><div class="section-title">Assessment</div><p>' + escapeHtml(entry.overall_assessment) + '</p></div>'
     }
     if (entry.follow_up_at) {
-      html += '<div class="section"><div class="section-title">Follow-up</div><p>' + entry.follow_up_at + '</p></div>'
+      html += '<div class="section"><div class="section-title">Follow-up</div><p>' + escapeHtml(entry.follow_up_at) + '</p></div>'
     }
     html += '</div>'
   })
@@ -236,7 +403,13 @@ onMounted(() => {
   if (isStaff.value) {
     fetchAlerts()
     const stored = localStorage.getItem('zhq-talk-ledger')
-    if (stored) talkEntries.value = JSON.parse(stored)
+    if (stored) {
+      try {
+        talkEntries.value = JSON.parse(stored)
+      } catch {
+        talkEntries.value = []
+      }
+    }
   }
 })
 
@@ -259,6 +432,88 @@ onBeforeUnmount(() => window.clearInterval(breathTimer))
         </button>
       </header>
 
+      <!-- 学生专属：两个入口。有人只想记录自己，有人只想看大家的开心事 -->
+      <nav v-if="isStudent" class="space-tabs" aria-label="暖心空间入口">
+        <button type="button" :class="{ active: activeTab === 'self' }" @click="switchTab('self')">
+          <PhWind :size="17" weight="duotone" />
+          <span>记录自己<small>仅你与辅导员可见</small></span>
+        </button>
+        <button type="button" :class="{ active: activeTab === 'share' }" @click="switchTab('share')">
+          <PhConfetti :size="17" weight="duotone" />
+          <span>开心分享<small>全校可见的积极小事</small></span>
+        </button>
+      </nav>
+
+      <!-- 开心分享墙 -->
+      <template v-if="isStudent && activeTab === 'share'">
+        <article class="happy-compose">
+          <header>
+            <div><PhConfetti :size="24" weight="duotone" /><h2>今天有什么值得高兴的？</h2></div>
+            <span>公开可见</span>
+          </header>
+          <p class="compose-hint">
+            这里只收积极的内容：一件小确幸、一张好看的天空、一句想分享的话。
+            如果今天不太好受，请用「记录自己」——那条不会公开。
+          </p>
+          <textarea v-model="shareContent" maxlength="500" placeholder="例如：答辩过了，出门看到晚霞是粉色的。"></textarea>
+
+          <div v-if="shareImage" class="share-image-preview">
+            <img :src="shareImage" alt="待发布的图片预览">
+            <button type="button" @click="shareImage = null">移除图片</button>
+          </div>
+
+          <div class="compose-actions">
+            <label class="share-upload">
+              <PhImage :size="17" weight="duotone" />
+              <span>{{ shareImage ? '换一张图' : '加一张图' }}</span>
+              <input type="file" accept="image/*" @change="pickShareImage">
+            </label>
+            <label class="share-anon">
+              <input v-model="shareAnonymous" type="checkbox">
+              <span>匿名发布</span>
+            </label>
+            <button type="button" class="share-publish" :disabled="shareLoading" @click="publishShare">
+              {{ shareLoading ? '正在发布' : '发布到分享墙' }}
+            </button>
+          </div>
+          <p v-if="shareStatus" class="share-ok">{{ shareStatus }}</p>
+          <p v-if="shareError" class="inline-error">{{ shareError }}</p>
+        </article>
+
+        <article class="happy-wall">
+          <header class="section-header">
+            <div><PhUsers :size="22" weight="duotone" /><h2>大家的开心事</h2></div>
+            <button type="button" class="refresh-btn" @click="fetchShares">刷新</button>
+          </header>
+          <div v-if="!shareLoaded" class="empty-state"><p>正在加载…</p></div>
+          <div v-else-if="shares.length === 0" class="empty-state">
+            <p>还没有人分享，你可以是第一个。</p>
+          </div>
+          <div v-else class="share-grid">
+            <article v-for="item in shares" :key="item.share_id" class="share-card">
+              <img v-if="item.image_data_url" :src="item.image_data_url" alt="分享的图片" loading="lazy">
+              <p>{{ item.content }}</p>
+              <footer>
+                <span class="share-author">{{ item.author_name }}</span>
+                <span class="share-time">{{ formatShareTime(item.created_at) }}</span>
+                <button
+                  type="button"
+                  class="cheer-btn"
+                  :class="{ cheered: cheeredIds.includes(item.share_id) }"
+                  :disabled="cheeredIds.includes(item.share_id)"
+                  @click="cheerShare(item)"
+                >
+                  <PhHeart :size="15" :weight="cheeredIds.includes(item.share_id) ? 'fill' : 'regular'" />
+                  {{ item.cheer_count }}
+                </button>
+              </footer>
+            </article>
+          </div>
+        </article>
+      </template>
+
+      <!-- 记录自己 -->
+      <template v-if="isStudent && activeTab === 'self'">
       <!-- 学生专属：心情打卡 -->
       <article v-if="isStudent" class="mood-checkin">
         <div class="checkin-title">
@@ -301,6 +556,7 @@ onBeforeUnmount(() => window.clearInterval(breathTimer))
           <button type="button" @click="saveJournal">{{ journalSaved ? '已经保存' : '保存私人片段' }}</button>
         </article>
       </div>
+      </template>
 
       <!-- 辅导员专属：预警总览 -->
       <article v-if="isStaff" class="alert-overview">
@@ -392,15 +648,34 @@ onBeforeUnmount(() => window.clearInterval(breathTimer))
       <section class="support-entries">
         <h2>需要更多支持时</h2>
         <div>
-          <article>
-            <PhFlowerLotus :size="24" weight="duotone" /><h3>校园心理资源</h3>
-            <p>展示校内心理中心、预约方式与值班安排。当前尚未接入学校预约系统。</p>
-            <button type="button" disabled>等待官方接口</button>
+          <article class="support-card">
+            <PhFlowerLotus :size="24" weight="duotone" /><h3>校内心理支持</h3>
+            <p>学校的心理支持渠道，可直接联系；本系统不代约、不转存你的对话内容。</p>
+            <div class="support-links">
+              <a href="tel:12356" class="support-link">
+                <PhPhoneCall :size="17" weight="duotone" />
+                <span><strong>12356</strong><small>24 小时心理援助热线</small></span>
+              </a>
+              <button type="button" class="support-link" @click="copyCounselorQQ">
+                <PhChatCircleDots :size="17" weight="duotone" />
+                <span><strong>2645256823</strong><small>山师心灵阳光使者 · QQ</small></span>
+                <em>{{ qqCopied ? '已复制' : '复制' }}</em>
+              </button>
+            </div>
           </article>
-          <article>
+          <article class="support-card">
             <PhFirstAid :size="24" weight="duotone" /><h3>紧急支持说明</h3>
             <p>当自己或他人可能立即受伤时，请优先联系身边可信任的人和当地紧急服务。</p>
-            <a href="tel:120">拨打 120</a>
+            <div class="support-links">
+              <a href="tel:120" class="support-link">
+                <PhPhoneCall :size="17" weight="duotone" />
+                <span><strong>120</strong><small>急救</small></span>
+              </a>
+              <a href="tel:110" class="support-link">
+                <PhPhoneCall :size="17" weight="duotone" />
+                <span><strong>110</strong><small>报警</small></span>
+              </a>
+            </div>
           </article>
         </div>
       </section>

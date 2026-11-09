@@ -40,11 +40,17 @@ class SqliteMemorySystem(MemorySystem):
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", (str(record.record_id), record.user_id, record.tier.value, record.session_id, record.category, record.access_scope.value, record.expires_at.isoformat() if record.expires_at else None, json.dumps(record.model_dump(mode="json"), ensure_ascii=False)))
         return record
 
-    async def query(self, *, user_id: str, tier: MemoryTier | None = None, session_id: str | None = None, category: str | None = None, permitted_scopes: set[AccessScope] | None = None) -> list[MemoryRecord]:
-        """Retrieve non-expired records by user and optional filters, enforcing explicit scopes."""
+    async def query(self, *, user_id: str | None = None, tier: MemoryTier | None = None, session_id: str | None = None, category: str | None = None, permitted_scopes: set[AccessScope] | None = None) -> list[MemoryRecord]:
+        """Retrieve non-expired records by user and optional filters, enforcing explicit scopes.
+
+        ``user_id=None`` performs an authorized-staff cross-owner lookup; callers must
+        supply explicit scopes in that case so the default OWNER filter is not widened.
+        """
         await self.prune_expired()
-        clauses = ["user_id = ?"]
-        values: list[str] = [user_id]
+        clauses: list[str] = []
+        values: list[str] = []
+        if user_id is not None:
+            clauses.append("user_id = ?"); values.append(user_id)
         if tier is not None:
             clauses.append("tier = ?"); values.append(tier.value)
         if session_id is not None:
@@ -55,9 +61,10 @@ class SqliteMemorySystem(MemorySystem):
         placeholders = ", ".join("?" for _ in scopes)
         clauses.append(f"access_scope IN ({placeholders})")
         values.extend(scope.value for scope in scopes)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         async with self._lock:
             with sqlite3.connect(self._path) as connection:
-                rows = connection.execute(f"SELECT payload FROM memory_records WHERE {' AND '.join(clauses)} ORDER BY rowid", values).fetchall()
+                rows = connection.execute(f"SELECT payload FROM memory_records{where} ORDER BY rowid", values).fetchall()
         return [MemoryRecord.model_validate_json(row[0]) for row in rows]
 
     async def forget(self, record_id: UUID) -> bool:

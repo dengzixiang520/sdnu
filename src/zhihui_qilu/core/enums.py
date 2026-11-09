@@ -25,6 +25,7 @@ class AccessScope(StrEnum):
     """Audience allowed to retrieve a memory record."""
 
     OWNER = "owner"
+    PUBLIC = "public"
     AUTHORIZED_STAFF = "authorized_staff"
     SYSTEM_ONLY = "system_only"
 

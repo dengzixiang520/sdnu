@@ -1,6 +1,8 @@
-﻿"""Points and badge system service."""
+"""Points and badge system service."""
 
 import json
+import threading
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -86,6 +88,8 @@ class PointsService:
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._points_file = self._data_dir / "points.json"
         self._records_file = self._data_dir / "points_records.json"
+        # JSON 文件没有事务，读-改-写必须串行化；否则并发打卡/兑换会互相覆盖。
+        self._lock = threading.RLock()
         self._ensure_files()
 
     def _ensure_files(self) -> None:
@@ -114,28 +118,34 @@ class PointsService:
 
     def add_points(self, user_id: str, user_name: str, points: int, source: str, source_detail: str = "") -> dict[str, Any]:
         """Add points to user."""
-        records = self._load_records()
-        record = {
-            "id": f"r{len(records) + 1}",
-            "user_id": user_id,
-            "user_name": user_name,
-            "points": points,
-            "source": source,
-            "source_detail": source_detail,
-            "created_at": datetime.now().isoformat()
-        }
-        records.append(record)
-        self._save_records(records)
-        
-        # 更新用户总积分
-        self._update_user_points(user_id, user_name, points, source)
-        
-        return record
+        with self._lock:
+            records = self._load_records()
+            record = {
+                "id": f"r{len(records) + 1}",
+                "user_id": user_id,
+                "user_name": user_name,
+                "points": points,
+                "source": source,
+                "source_detail": source_detail,
+                "created_at": datetime.now().isoformat()
+            }
+            records.append(record)
+            self._save_records(records)
+
+            # 更新用户总积分
+            self._update_user_points(user_id, user_name, points, source)
+
+            return record
 
     def _update_user_points(self, user_id: str, user_name: str, points: int, source: str) -> None:
-        """Update user total points."""
+        """Update user total points.
+
+        兑换（``source == "exchange"``）只冲减总分，不进入竞赛/打卡/活动任何一个
+        贡献分类；早期版本把它落进 ``activity_points`` 并加上负数，导致"总分下降、
+        活动积分反而上升"的错误账目。
+        """
         points_data = self._load_points()
-        
+
         user = next((u for u in points_data if u["user_id"] == user_id), None)
         if not user:
             user = {
@@ -149,22 +159,24 @@ class PointsService:
                 "level": "新手"
             }
             points_data.append(user)
-        
+
         user["total_points"] += points
         if source == "competition":
             user["competition_points"] += points
         elif source == "checkin":
             user["checkin_points"] += points
+        elif source == "exchange":
+            pass  # 兑换是消费，不属于任何贡献分类
         else:
             user["activity_points"] += points
-        
+
         # 更新等级
         user["level"] = self._calculate_level(user["total_points"])
-        
-        # 检查并授予徽章
+
+        # 检查并授予徽章（只增不减，兑换不会回收已得徽章）
         new_badges = self._check_badges(user)
         user["badges"] = list(set(user["badges"] + new_badges))
-        
+
         self._save_points(points_data)
 
     def _calculate_level(self, points: int) -> str:
@@ -265,68 +277,64 @@ class PointsService:
     def get_exchange_product(self, product_id: str) -> dict[str, Any] | None:
         """Get exchange product by ID."""
         products = self._load_exchange_products()
-        return next((p for p in products if p["id"] == product_id), None)
-    
+        return next((p for p in products if p.get("id") == product_id), None)
+
     def exchange_product(self, user_id: str, user_name: str, product_id: str) -> dict[str, Any]:
-        """Exchange points for a product."""
-        # 获取商品
-        product = self.get_exchange_product(product_id)
-        if not product:
-            return {"success": False, "error": "商品不存在"}
-        
-        # 检查库存
-        if product["stock"] <= 0:
-            return {"success": False, "error": "商品已售罄"}
-        
-        # 获取用户积分
-        user = self.get_user_points(user_id)
-        if not user:
-            return {"success": False, "error": "用户积分记录不存在"}
-        
-        # 检查积分是否足够
-        if user["total_points"] < product["points"]:
-            return {"success": False, "error": f"积分不足，需要{product['points']}积分，当前{user['total_points']}积分"}
-        
-        # 扣除积分
-        self.add_points(user_id, user_name, -product["points"], "exchange", f"兑换: {product['name']}")
-        
-        # 减少库存
-        products = self._load_exchange_products()
-        for p in products:
-            if p["id"] == product_id:
-                p["stock"] -= 1
-                break
-        self._save_exchange_products(products)
-        
-        # 生成兑换码
-        import uuid
-        exchange_code = str(uuid.uuid4())[:8].upper()
-        
-        # 记录兑换
-        records = self._load_exchange_records()
-        record = {
-            "id": f"ex{len(records) + 1}",
-            "user_id": user_id,
-            "user_name": user_name,
-            "product_id": product_id,
-            "product_name": product["name"],
-            "points_cost": product["points"],
-            "exchange_code": exchange_code,
-            "exchange_time": datetime.now().isoformat(),
-            "pick_up_location": product["location"],
-            "status": "pending"  # pending, claimed, expired
-        }
-        records.append(record)
-        self._save_exchange_records(records)
-        
-        return {
-            "success": True,
-            "exchange_code": exchange_code,
-            "product_name": product["name"],
-            "points_cost": product["points"],
-            "pick_up_location": product["location"],
-            "message": f"兑换成功！请凭兑换码 {exchange_code} 到 {product['location']} 领取"
-        }
+        """Exchange points for a product.
+
+        库存校验、积分扣减与库存落盘在同一把锁内完成，避免并发兑换超卖；
+        商品只加载一次，防止校验用的库存和扣减用的库存不是同一份快照。
+        """
+        with self._lock:
+            products = self._load_exchange_products()
+            product = next((p for p in products if p.get("id") == product_id), None)
+            if product is None:
+                return {"success": False, "error": "商品不存在"}
+
+            if product.get("stock", 0) <= 0:
+                return {"success": False, "error": "商品已售罄"}
+
+            user = self.get_user_points(user_id)
+            if not user:
+                return {"success": False, "error": "用户积分记录不存在"}
+
+            cost = int(product.get("points", 0))
+            if user["total_points"] < cost:
+                return {"success": False, "error": f"积分不足，需要{cost}积分，当前{user['total_points']}积分"}
+
+            # 扣除积分（source=exchange，只冲减总分，不进入贡献分类）
+            self.add_points(user_id, user_name, -cost, "exchange", f"兑换: {product.get('name', '')}")
+
+            # 减少库存
+            product["stock"] = product.get("stock", 0) - 1
+            self._save_exchange_products(products)
+
+            exchange_code = str(uuid.uuid4())[:8].upper()
+
+            records = self._load_exchange_records()
+            record = {
+                "id": f"ex{len(records) + 1}",
+                "user_id": user_id,
+                "user_name": user_name,
+                "product_id": product_id,
+                "product_name": product.get("name", ""),
+                "points_cost": cost,
+                "exchange_code": exchange_code,
+                "exchange_time": datetime.now().isoformat(),
+                "pick_up_location": product.get("location", ""),
+                "status": "pending"  # pending, claimed, expired
+            }
+            records.append(record)
+            self._save_exchange_records(records)
+
+            return {
+                "success": True,
+                "exchange_code": exchange_code,
+                "product_name": product.get("name", ""),
+                "points_cost": cost,
+                "pick_up_location": product.get("location", ""),
+                "message": f"兑换成功！请凭兑换码 {exchange_code} 到 {product.get('location', '')} 领取"
+            }
     
     def get_user_exchanges(self, user_id: str) -> list[dict[str, Any]]:
         """Get user exchange records."""
@@ -334,14 +342,16 @@ class PointsService:
         return [r for r in records if r["user_id"] == user_id]
     
     def claim_exchange(self, exchange_id: str) -> dict[str, Any]:
-        """Mark an exchange as claimed."""
-        records = self._load_exchange_records()
-        for r in records:
-            if r["id"] == exchange_id:
-                if r["status"] != "pending":
+        """Mark an exchange as claimed. 读-改-写必须在锁内，否则重复领取会互相覆盖。"""
+        with self._lock:
+            records = self._load_exchange_records()
+            for record in records:
+                if record.get("id") != exchange_id:
+                    continue
+                if record.get("status") != "pending":
                     return {"success": False, "error": "该兑换已被处理"}
-                r["status"] = "claimed"
-                r["claimed_time"] = datetime.now().isoformat()
+                record["status"] = "claimed"
+                record["claimed_time"] = datetime.now().isoformat()
                 self._save_exchange_records(records)
                 return {"success": True, "message": "已确认领取"}
-        return {"success": False, "error": "兑换记录不存在"}
+            return {"success": False, "error": "兑换记录不存在"}

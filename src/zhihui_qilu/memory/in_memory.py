@@ -22,11 +22,11 @@ class InMemoryMemorySystem(MemorySystem):
             self._records[record.record_id] = record
         return record
 
-    async def query(self, *, user_id: str, tier: MemoryTier | None = None, session_id: str | None = None, category: str | None = None, permitted_scopes: set[AccessScope] | None = None) -> list[MemoryRecord]:
+    async def query(self, *, user_id: str | None = None, tier: MemoryTier | None = None, session_id: str | None = None, category: str | None = None, permitted_scopes: set[AccessScope] | None = None) -> list[MemoryRecord]:
         await self.prune_expired()
         scopes = permitted_scopes or {AccessScope.OWNER}
         async with self._lock:
-            return [record for record in self._records.values() if record.user_id == user_id and (tier is None or record.tier == tier) and (session_id is None or record.session_id == session_id) and (category is None or record.category == category) and record.access_scope in scopes]
+            return [record for record in self._records.values() if (user_id is None or record.user_id == user_id) and (tier is None or record.tier == tier) and (session_id is None or record.session_id == session_id) and (category is None or record.category == category) and record.access_scope in scopes]
 
     async def forget(self, record_id: UUID) -> bool:
         async with self._lock:
