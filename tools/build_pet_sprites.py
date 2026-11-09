@@ -40,9 +40,9 @@ PICK: list[tuple[str, str]] = [
     ("anim-037", "milktea"),      # 吃糖葫芦
 ]
 
-CROP = (180, 28, 290, 312)  # x, y, w, h —— 覆盖全部 13 段动画的角色范围
-FPS = 9
-FRAME_STEP = 2  # 原视频 24fps，每 2 帧取 1 帧，输出约 12fps 且体积减半
+CROP = (106, 15, 356, 330)  # x, y, w, h —— 13 段动画的角色并集为 111..458 / 19..340，四周留 5px 余量
+FPS = 12                # 原视频 24fps，每 2 帧取 1 帧后的实际帧率
+FRAME_STEP = 2          # 每 2 帧取 1 帧，体积减半
 QUALITY = 68
 DARK_LUM = 46          # 亮度低于此视为「可能是背景」
 ERODE_EDGES = 1        # 角色掩膜腐蚀半径，避免把背景噪点带进来
@@ -96,6 +96,7 @@ def build(source_dir: Path, output_dir: Path) -> int:
             continue
 
         frames: list[Image.Image] = []
+        touched = 0
         index = 0
         while True:
             ok, frame = capture.read()
@@ -103,12 +104,19 @@ def build(source_dir: Path, output_dir: Path) -> int:
                 break
             if index % FRAME_STEP == 0:
                 cropped = frame[y:y + h, x:x + w]
+                # 自检：角色若贴到裁剪边界，泛洪填充会把贴边的那部分当背景吃掉，
+                # 表现为脚/呆毛「一会消失一会出现」。触边就报警。
+                lit = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY) > 60
+                if lit[0, :].any() or lit[-1, :].any() or lit[:, 0].any() or lit[:, -1].any():
+                    touched += 1
                 frames.append(Image.fromarray(key_out_background(cropped), mode="RGBA"))
             index += 1
         capture.release()
         if not frames:
             print(f"[跳过] {source.name} 没解出帧")
             continue
+        if touched:
+            print(f"[警告] {name} 有 {touched} 帧贴到裁剪边界，请扩大 CROP")
 
         target = output_dir / f"{name}.webp"
         duration = max(1, round(1000 / FPS))
