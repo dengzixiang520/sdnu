@@ -6,7 +6,7 @@
  * CC BY-NC-SA 4.0，非商业使用并保留署名），已转成带透明通道的动画 WebP；
  * 出处与许可见 NOTICE.md。
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { PhArrowUp, PhMinus, PhPaperPlaneTilt, PhSparkle } from '@phosphor-icons/vue'
 import { chatHistory, command, requestJson, streamChat, type ChatMessage } from '../api'
@@ -31,13 +31,10 @@ const providerOnline = ref<boolean | null>(null)
 const loadedHistory = ref(false)
 
 // 注视感：根据指针方位轻微倾斜并挑选对应待机动画
-// 取整到整数像素：亚像素位移会迫使浏览器对动画帧重采样，产生闪烁
 const look = ref<Look>('down')
-const leanX = ref(0)
-const leanY = ref(0)
-const leanTransform = computed(() =>
-  `translate3d(${Math.round(leanX.value)}px, ${Math.round(leanY.value)}px, 0) scaleX(${squash.value.toFixed(3)}) scaleY(${squash.value.toFixed(3)})`
-)
+const lean = ref({ x: 0, y: 0 })
+
+// 拖拽物理：松手后按甩出速度飞行 + 边界反弹 + Q 弹挤压
 const flying = ref(false)
 const squash = ref(1)
 let velocity = { x: 0, y: 0 }
@@ -98,8 +95,10 @@ function updateLook(clientX: number, clientY: number) {
   const distance = Math.hypot(dx, dy)
   // 越近倾斜越明显，但幅度封顶，避免在页面上晃得过分
   const strength = Math.min(1, distance / 420)
-  leanX.value = Math.max(-1, Math.min(1, dx / 260)) * 4.5 * strength
-  leanY.value = Math.max(-1, Math.min(1, dy / 260)) * 3 * strength
+  lean.value = {
+    x: Math.max(-1, Math.min(1, dx / 260)) * 4.5 * strength,
+    y: Math.max(-1, Math.min(1, dy / 260)) * 3 * strength,
+  }
   if (state.value !== 'idle') return
   look.value = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up')
 }
@@ -269,7 +268,7 @@ onMounted(() => {
   window.addEventListener('resize', handleResize)
   window.addEventListener('zhq-open-guide', openFromPage)
   window.addEventListener('pointermove', onWindowPointerMove, { passive: true })
-  document.addEventListener('mouseleave', () => { leanX.value = 0; leanY.value = 0 })
+  document.addEventListener('mouseleave', () => { lean.value = { x: 0, y: 0 } })
 })
 onBeforeUnmount(() => {
   window.clearTimeout(idleTimer); cancelPhysics()
@@ -287,7 +286,13 @@ onBeforeUnmount(() => {
     ref="pet"
     class="guide-pet"
     :class="[`is-${state}`, { open, flying, 'card-open': cardOpen }]"
-    :style="{ transform: `translate3d(${position.x}px, ${position.y}px, 0)` }"
+    :style="{
+      transform: `translate3d(${position.x}px, ${position.y}px, 0)`,
+      '--lean-x': `${lean.x}px`,
+      '--lean-y': `${lean.y}px`,
+      '--squash-x': 2 - squash,
+      '--squash-y': squash,
+    }"
     @pointerdown="beginDrag"
   >
     <!-- 能量卡：本项目自己的数据，替代原桌宠的账户余额卡 -->
@@ -324,16 +329,12 @@ onBeforeUnmount(() => {
     <div class="pet-stage" role="button" :aria-label="`暖心引导员小曦瑶，${stateCopy[state]}，可拖动位置或点击对话`">
       <span class="pet-status">{{ stateCopy[state] }}</span>
       <div class="pet-shadow"></div>
-      <!-- lean/squash 挂在外层 wrapper：动画 WebP 的 <img> 本身不做任何 CSS 变换，
-           避免 Chrome 合成层在播放中反复重采样导致局部闪烁 -->
-      <div class="pet-lean" :style="{ transform: leanTransform }">
-        <img
-          class="pet-sprite"
-          :src="`/pet/${currentAnim}.webp`"
-          :alt="`小曦瑶 · ${stateCopy[state]}`"
-          draggable="false"
-        >
-      </div>
+      <img
+        class="pet-sprite"
+        :src="`/pet/${currentAnim}.webp`"
+        :alt="`小曦瑶 · ${stateCopy[state]}`"
+        draggable="false"
+      >
       <button type="button" class="pet-card-hint" aria-label="查看今日能量" @pointerdown.stop @click.stop="toggleCard">今日能量</button>
     </div>
   </div>
