@@ -1,0 +1,161 @@
+chinese_date(2026年7月30日) = 二○二六年七月三十日
+chinese_date(2007-08-15) = 二○○七年八月十五日
+
+===== 通知 | sdnu_notice.docx | 38180 bytes =====
+[00] '山东师范大学文件' font=['方正小标宋简体'] size=[36.0] color=['C00000'] align=CENTER
+[02] '山东师大校字〔2026〕15号' font=['仿宋_GB2312'] size=[16.0] color=[] align=CENTER
+[04] '（通知示例）山东师范大学关于测试事项的通知' font=['方正小标宋简体'] size=[22.0] color=[] align=CENTER
+[05] '校内各单位：' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[06] '这是正文首段，用于验证每段左空两字、回行顶格。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[07] '一、一级标题应使用黑体且句尾不加标点' font=['黑体'] size=[16.0] color=[] align=-
+[08] '正文内容，使用仿宋三号。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[09] '（一）二级标题应使用楷体' font=['楷体_GB2312'] size=[16.0] color=[] align=-
+[10] '1．三级标题使用仿宋。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[11] '特此通知。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[13] '附件：1.附件名称一' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[14] '\u3000\u3000\u30002.附件名称二' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[16] '山东师范大学' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[17] '二○二六年九月二十八日' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[19] '主题词：人工智能\u3000竞赛\u3000通知' font=['方正小标宋简体', '黑体'] size=[16.0] color=[] align=-
+[20] '抄送：党委办公室，学生工作部（处）。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[21] '\u3000山东师范大学校长办公室\u3000\u3000\u3000\u3000\u3000\u3000二○二六年九月二十八日印发\u3000' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+footer='' page_field=False
+
+===== 公告 | sdnu_announcement.docx | 38157 bytes =====
+[00] '山东师范大学文件' font=['方正小标宋简体'] size=[36.0] color=['C00000'] align=CENTER
+[02] '山东师大校字〔2026〕22号' font=['仿宋_GB2312'] size=[16.0] color=[] align=CENTER
+[04] '（公告示例）山东师范大学关于测试事项的公告' font=['方正小标宋简体'] size=[22.0] color=[] align=CENTER
+[05] '这是正文首段，用于验证每段左空两字、回行顶格。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[06] '一、一级标题应使用黑体且句尾不加标点' font=['黑体'] size=[16.0] color=[] align=-
+[07] '正文内容，使用仿宋三号。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[08] '（一）二级标题应使用楷体' font=['楷体_GB2312'] size=[16.0] color=[] align=-
+[09] '1．三级标题使用仿宋。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[10] '特此公告。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[12] '附件：1.附件名称一' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[13] '\u3000\u3000\u30002.附件名称二' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[15] '山东师范大学' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[16] '二○二六年九月二十八日' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[18] '主题词：人工智能\u3000竞赛\u3000公告' font=['方正小标宋简体', '黑体'] size=[16.0] color=[] align=-
+[19] '抄送：党委办公室，学生工作部（处）。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[20] '\u3000山东师范大学校长办公室\u3000\u3000\u3000\u3000\u3000\u3000二○二六年九月二十八日印发\u3000' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+footer='' page_field=False
+
+===== 报告 | sdnu_report.docx | 38254 bytes =====
+[00] '秘密★1年' font=['黑体'] size=[16.0] color=[] align=RIGHT
+[01] '山东师范大学文件' font=['方正小标宋简体'] size=[36.0] color=['C00000'] align=CENTER
+[03] '\u3000山东师大校字〔2026〕31号\t签发人：×××' font=['仿宋_GB2312', '楷体_GB2312'] size=[16.0] color=[] align=LEFT
+[05] '（报告示例）山东师范大学关于测试事项的报告' font=['方正小标宋简体'] size=[22.0] color=[] align=CENTER
+[06] '山东省教育厅：' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[07] '这是正文首段，用于验证每段左空两字、回行顶格。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[08] '一、一级标题应使用黑体且句尾不加标点' font=['黑体'] size=[16.0] color=[] align=-
+[09] '正文内容，使用仿宋三号。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[10] '（一）二级标题应使用楷体' font=['楷体_GB2312'] size=[16.0] color=[] align=-
+[11] '1．三级标题使用仿宋。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[12] '特此报告。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[14] '附件：1.附件名称一' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[15] '\u3000\u3000\u30002.附件名称二' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[17] '山东师范大学' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[18] '二○二六年九月二十八日' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[20] '主题词：人工智能\u3000竞赛\u3000报告' font=['方正小标宋简体', '黑体'] size=[16.0] color=[] align=-
+[21] '抄送：党委办公室，学生工作部（处）。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[22] '\u3000山东师范大学校长办公室\u3000\u3000\u3000\u3000\u3000\u3000二○二六年九月二十八日印发\u3000' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+footer='' page_field=False
+
+===== 请示 | sdnu_request.docx | 38251 bytes =====
+[00] '急件' font=['黑体'] size=[16.0] color=[] align=RIGHT
+[01] '山东师范大学文件' font=['方正小标宋简体'] size=[36.0] color=['C00000'] align=CENTER
+[03] '\u3000山东师大校字〔2026〕18号\t签发人：×××' font=['仿宋_GB2312', '楷体_GB2312'] size=[16.0] color=[] align=LEFT
+[05] '（请示示例）山东师范大学关于测试事项的请示' font=['方正小标宋简体'] size=[22.0] color=[] align=CENTER
+[06] '山东省教育厅：' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[07] '这是正文首段，用于验证每段左空两字、回行顶格。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[08] '一、一级标题应使用黑体且句尾不加标点' font=['黑体'] size=[16.0] color=[] align=-
+[09] '正文内容，使用仿宋三号。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[10] '（一）二级标题应使用楷体' font=['楷体_GB2312'] size=[16.0] color=[] align=-
+[11] '1．三级标题使用仿宋。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[12] '妥否，请批示。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[14] '附件：1.附件名称一' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[15] '\u3000\u3000\u30002.附件名称二' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[17] '山东师范大学' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[18] '二○二六年九月二十八日' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[20] '主题词：人工智能\u3000竞赛\u3000请示' font=['方正小标宋简体', '黑体'] size=[16.0] color=[] align=-
+[21] '抄送：党委办公室，学生工作部（处）。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[22] '\u3000山东师范大学校长办公室\u3000\u3000\u3000\u3000\u3000\u3000二○二六年九月二十八日印发\u3000' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+footer='' page_field=False
+
+===== 函 | sdnu_letter.docx | 38199 bytes =====
+[00] '山东师范大学校长办公室文件' font=['方正小标宋简体'] size=[36.0] color=['C00000'] align=CENTER
+[02] '山东师大校办字〔2026〕9号' font=['仿宋_GB2312'] size=[16.0] color=[] align=CENTER
+[04] '（函示例）山东师范大学关于测试事项的函' font=['方正小标宋简体'] size=[22.0] color=[] align=CENTER
+[05] '济南市历下区人民政府：' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[06] '这是正文首段，用于验证每段左空两字、回行顶格。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[07] '一、一级标题应使用黑体且句尾不加标点' font=['黑体'] size=[16.0] color=[] align=-
+[08] '正文内容，使用仿宋三号。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[09] '（一）二级标题应使用楷体' font=['楷体_GB2312'] size=[16.0] color=[] align=-
+[10] '1．三级标题使用仿宋。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[11] '请予支持为盼。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[13] '附件：1.附件名称一' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[14] '\u3000\u3000\u30002.附件名称二' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[16] '山东师范大学' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[17] '二○二六年九月二十八日' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[19] '主题词：人工智能\u3000竞赛\u3000函' font=['方正小标宋简体', '黑体'] size=[16.0] color=[] align=-
+[20] '抄送：党委办公室，学生工作部（处）。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[21] '\u3000山东师范大学校长办公室\u3000\u3000\u3000\u3000\u3000\u3000二○二六年九月二十八日印发\u3000' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+footer='' page_field=False
+
+===== 决定 | sdnu_decision.docx | 38176 bytes =====
+[00] '山东师范大学文件' font=['方正小标宋简体'] size=[36.0] color=['C00000'] align=CENTER
+[02] '山东师大校字〔2026〕26号' font=['仿宋_GB2312'] size=[16.0] color=[] align=CENTER
+[04] '（决定示例）山东师范大学关于测试事项的决定' font=['方正小标宋简体'] size=[22.0] color=[] align=CENTER
+[05] '校内各单位：' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[06] '这是正文首段，用于验证每段左空两字、回行顶格。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[07] '一、一级标题应使用黑体且句尾不加标点' font=['黑体'] size=[16.0] color=[] align=-
+[08] '正文内容，使用仿宋三号。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[09] '（一）二级标题应使用楷体' font=['楷体_GB2312'] size=[16.0] color=[] align=-
+[10] '1．三级标题使用仿宋。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[11] '特此决定。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[13] '附件：1.附件名称一' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[14] '\u3000\u3000\u30002.附件名称二' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[16] '山东师范大学' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[17] '二○二六年九月二十八日' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[19] '主题词：人工智能\u3000竞赛\u3000决定' font=['方正小标宋简体', '黑体'] size=[16.0] color=[] align=-
+[20] '抄送：党委办公室，学生工作部（处）。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[21] '\u3000山东师范大学校长办公室\u3000\u3000\u3000\u3000\u3000\u3000二○二六年九月二十八日印发\u3000' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+footer='' page_field=False
+
+===== 通报 | sdnu_communique.docx | 38182 bytes =====
+[00] '山东师范大学校长办公室文件' font=['方正小标宋简体'] size=[36.0] color=['C00000'] align=CENTER
+[02] '山东师大校办字〔2026〕12号' font=['仿宋_GB2312'] size=[16.0] color=[] align=CENTER
+[04] '（通报示例）山东师范大学关于测试事项的通报' font=['方正小标宋简体'] size=[22.0] color=[] align=CENTER
+[05] '校内各单位：' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[06] '这是正文首段，用于验证每段左空两字、回行顶格。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[07] '一、一级标题应使用黑体且句尾不加标点' font=['黑体'] size=[16.0] color=[] align=-
+[08] '正文内容，使用仿宋三号。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[09] '（一）二级标题应使用楷体' font=['楷体_GB2312'] size=[16.0] color=[] align=-
+[10] '1．三级标题使用仿宋。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[11] '特此通报。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[13] '附件：1.附件名称一' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[14] '\u3000\u3000\u30002.附件名称二' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[16] '山东师范大学' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[17] '二○二六年九月二十八日' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[19] '主题词：人工智能\u3000竞赛\u3000通报' font=['方正小标宋简体', '黑体'] size=[16.0] color=[] align=-
+[20] '抄送：党委办公室，学生工作部（处）。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[21] '\u3000山东师范大学校长办公室\u3000\u3000\u3000\u3000\u3000\u3000二○二六年九月二十八日印发\u3000' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+footer='' page_field=False
+
+===== 会议纪要 | sdnu_minutes.docx | 38145 bytes =====
+[00] '山东师范大学校长办公室文件' font=['黑体'] size=[22.0] color=[] align=CENTER
+[02] '山东师大校办字〔2026〕16号' font=['仿宋_GB2312'] size=[16.0] color=[] align=CENTER
+[04] '（会议纪要示例）山东师范大学关于测试事项的会议纪要' font=['方正小标宋简体'] size=[22.0] color=[] align=CENTER
+[05] '这是正文首段，用于验证每段左空两字、回行顶格。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[06] '一、一级标题应使用黑体且句尾不加标点' font=['黑体'] size=[16.0] color=[] align=-
+[07] '正文内容，使用仿宋三号。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[08] '（一）二级标题应使用楷体' font=['楷体_GB2312'] size=[16.0] color=[] align=-
+[09] '1．三级标题使用仿宋。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[11] '附件：1.附件名称一' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[12] '\u3000\u3000\u30002.附件名称二' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[14] '山东师范大学' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[15] '二○二六年九月二十八日' font=['仿宋_GB2312'] size=[16.0] color=[] align=RIGHT
+[17] '主题词：人工智能\u3000竞赛\u3000会议纪要' font=['方正小标宋简体', '黑体'] size=[16.0] color=[] align=-
+[18] '抄送：党委办公室，学生工作部（处）。' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+[19] '\u3000山东师范大学校长办公室\u3000\u3000\u3000\u3000\u3000\u3000二○二六年九月二十八日印发\u3000' font=['仿宋_GB2312'] size=[16.0] color=[] align=-
+footer='' page_field=False

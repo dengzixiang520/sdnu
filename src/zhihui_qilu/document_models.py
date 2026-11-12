@@ -5,13 +5,30 @@ from pydantic import BaseModel, Field
 
 
 class OfficialDocumentElements(BaseModel):
-    """The four core elements required by the administrative-document engine."""
+    """The four core elements required by the administrative-document engine.
+
+    后面几项是按《山东师范大学行政文件格式细则》补的版式要素，全部有默认值，
+    旧的调用方（只传五项）行为不变。
+    """
 
     reference_number: str | None = Field(default=None, max_length=100)
     title: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1)
     signature: str | None = Field(default=None, max_length=200)
     issue_date: str | None = Field(default=None, max_length=50)
+
+    # 版式要素
+    doc_type: str = Field(default="notice", max_length=40)
+    banner_name: str | None = Field(default=None, max_length=100)
+    recipient: str | None = Field(default=None, max_length=300)
+    attachments: list[str] = Field(default_factory=list)
+    cc: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    urgency: str | None = Field(default=None, max_length=20)
+    secrecy: str | None = Field(default=None, max_length=20)
+    signer: str | None = Field(default=None, max_length=50)
+    closing: str | None = Field(default=None, max_length=100)
+    print_agency: str | None = Field(default=None, max_length=100)
 
 
 class TemplateSpecification(BaseModel):

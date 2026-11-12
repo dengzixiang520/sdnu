@@ -75,9 +75,10 @@ async function loadSavedTimetable() {
   }
 }
 
-// 页面加载时读取已保存的课表
+// 页面加载时读取已保存的课表与回忆记录
 onMounted(() => {
   loadSavedTimetable()
+  loadMemoryRecords()
 })
 
 interface TimetableEvent { 
@@ -134,6 +135,156 @@ const uploadProgress = ref('')
 const dragover = ref(false)
 const parseMode = ref<'text' | 'file'>('text')
 
+// 记账 + 美好记录
+interface MemoryRecord {
+  id: number
+  createdAt: string
+  purpose: string
+  amount: string
+  payer: string
+  members: string[]
+  transfers: Transfer[]
+  photos: string[]
+}
+
+const MEMORY_STORAGE_KEY = 'zhq-memory-records'
+const MAX_PHOTOS_PER_RECORD = 6
+
+const purpose = ref('宿舍一起买的东西')
+const photos = ref<string[]>([])
+const photoInput = ref<HTMLInputElement | null>(null)
+const memoryRecords = ref<MemoryRecord[]>([])
+const previewPhoto = ref('')
+const memoryNotice = ref('')
+
+function loadMemoryRecords() {
+  try {
+    const raw = localStorage.getItem(MEMORY_STORAGE_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      memoryRecords.value = parsed as MemoryRecord[]
+    }
+  } catch {
+    // 本地存储损坏或不可用时不打扰用户，只是回忆列表为空。
+  }
+}
+
+function persistMemoryRecords() {
+  try {
+    localStorage.setItem(MEMORY_STORAGE_KEY, JSON.stringify(memoryRecords.value))
+    return true
+  } catch {
+    // 照片占空间，配额满了就退化成「只保留文字」，不能让整条记录丢掉。
+    try {
+      const textOnly = memoryRecords.value.map((record) => ({ ...record, photos: [] }))
+      localStorage.setItem(MEMORY_STORAGE_KEY, JSON.stringify(textOnly))
+      memoryNotice.value = '本地存储空间不足，照片没有写入磁盘；文字记录已保存。'
+    } catch {
+      memoryNotice.value = '本地存储不可用，记录只保留在本次会话中。'
+    }
+    return false
+  }
+}
+
+// 浏览器端压到 720px / JPEG 0.72：只用于回忆展示，够清楚又能塞进 localStorage。
+function compressImage(file: File, maxSide = 720): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const image = new Image()
+      image.onload = () => {
+        const scale = Math.min(1, maxSide / Math.max(image.width, image.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(image.width * scale))
+        canvas.height = Math.max(1, Math.round(image.height * scale))
+        const context = canvas.getContext('2d')
+        if (!context) {
+          reject(new Error('当前浏览器不支持图片压缩'))
+          return
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', 0.72))
+      }
+      image.onerror = () => reject(new Error('这张图片读不出来'))
+      image.src = String(reader.result)
+    }
+    reader.onerror = () => reject(new Error('这张图片读不出来'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function handlePhotoSelect(event: globalThis.Event) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  memoryNotice.value = ''
+  for (const file of files) {
+    if (photos.value.length >= MAX_PHOTOS_PER_RECORD) {
+      memoryNotice.value = `一条记录最多 ${MAX_PHOTOS_PER_RECORD} 张照片`
+      break
+    }
+    if (!file.type.startsWith('image/')) continue
+    try {
+      photos.value.push(await compressImage(file))
+    } catch (reason) {
+      memoryNotice.value = reason instanceof Error ? reason.message : '照片读取失败'
+    }
+  }
+  // 允许重复选同一张图
+  input.value = ''
+}
+
+function removePhoto(index: number) {
+  photos.value.splice(index, 1)
+}
+
+function saveMemoryRecord(withSettlement: boolean) {
+  const label = purpose.value.trim() || '宿舍公用支出'
+  const memberList = members.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean)
+  memoryRecords.value.unshift({
+    id: Date.now(),
+    createdAt: new Date().toISOString(),
+    purpose: label,
+    amount: amount.value.trim() || '—',
+    payer: payer.value.trim(),
+    members: memberList,
+    transfers: withSettlement ? [...transfers.value] : [],
+    photos: [...photos.value]
+  })
+  persistMemoryRecords()
+  photos.value = []
+}
+
+// 「只记美好」：不涉及钱、也不需要分摊，纯记录当下这件事。
+function saveMemoryOnly() {
+  if (!purpose.value.trim() && photos.value.length === 0) {
+    error.value = '至少写一句这次是干啥，或者放一张照片'
+    return
+  }
+  error.value = ''
+  memoryNotice.value = ''
+  saveMemoryRecord(false)
+  memoryNotice.value = '已经记下来了，往下翻就能看到。'
+}
+
+function removeMemoryRecord(id: number) {
+  memoryRecords.value = memoryRecords.value.filter((record) => record.id !== id)
+  persistMemoryRecords()
+}
+
+function formatMemoryTime(iso: string) {
+  try {
+    return new Date(iso).toLocaleString('zh-CN', {
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  } catch {
+    return iso
+  }
+}
+
 // 时间段（支持单节和双节课程）
 const timeSlots = [
   '08:20', '09:10', '10:10', '11:00',
@@ -141,7 +292,7 @@ const timeSlots = [
   '19:00', '19:50'
 ]
 
-// 节次信息
+// 节次信息（与后端 SLOT_TIMES、教务系统原始课表完全一致）
 const slotInfo: Record<string, { name: string, end: string }> = {
   '08:20': { name: '第1节', end: '09:05' },
   '09:10': { name: '第2节', end: '09:55' },
@@ -155,10 +306,20 @@ const slotInfo: Record<string, { name: string, end: string }> = {
   '19:50': { name: '第10节', end: '20:35' }
 }
 
+// 山师的课是「一个大课 = 两个小课」：每小课 45 分钟，大课内部间隔 5 分钟，
+// 大课之间间隔 15 分钟。所以网格按大课分行，每行下面再挂两个小节的时刻。
+const bigSlots: { label: string, tag: string, slots: [string, string] }[] = [
+  { label: '第一大课', tag: '上午', slots: ['08:20', '09:10'] },
+  { label: '第二大课', tag: '上午', slots: ['10:10', '11:00'] },
+  { label: '第三大课', tag: '下午', slots: ['14:00', '14:50'] },
+  { label: '第四大课', tag: '下午', slots: ['15:50', '16:40'] },
+  { label: '晚间大课', tag: '晚上', slots: ['19:00', '19:50'] }
+]
+
 // 星期
 const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 
-// 查找最接近的时间段
+// 查找最接近的时间段（自定义行程用：用户从下拉里选的时刻一定落在某个小节附近）
 function findClosestSlot(timeStr: string): string | null {
   const time = timeStr.substring(0, 5)
   const [hours, minutes] = time.split(':').map(Number)
@@ -181,6 +342,32 @@ function findClosestSlot(timeStr: string): string | null {
   return closestSlot
 }
 
+function toMinutes(time: string): number {
+  const [hours, minutes] = time.split(':').map(Number)
+  return hours * 60 + minutes
+}
+
+// 每小节的真实起止（分钟）。课程按「区间重叠」落到小节上，
+// 而不是按「开始时刻最接近」——否则 11:45 这种结束时刻会因为差 45 分钟被丢掉，
+// 一门 3-4 节的课就只剩第 3 节有格子。
+const slotBounds = timeSlots.map((slot) => ({
+  slot,
+  start: toMinutes(slot),
+  end: toMinutes(slotInfo[slot]?.end ?? slot)
+}))
+
+function slotsCoveredBy(startTime: string, endTime: string): string[] {
+  const start = toMinutes(startTime)
+  const end = toMinutes(endTime)
+  const safeEnd = end > start ? end : start + 1
+  const covered = slotBounds
+    .filter((bounds) => start < bounds.end && safeEnd > bounds.start)
+    .map((bounds) => bounds.slot)
+  if (covered.length > 0) return covered
+  const fallback = findClosestSlot(startTime)
+  return fallback ? [fallback] : []
+}
+
 // 将事件转换为表格数据
 const timetableGrid = computed(() => {
   const grid: Record<string, Record<string, any>> = {}
@@ -195,50 +382,137 @@ const timetableGrid = computed(() => {
   // 填充解析的事件
   events.value.forEach(event => {
     const day = event.day_of_week || getDayOfWeek(event.starts_at)
+    if (!grid[day]) return
     const startTime = formatTime(event.starts_at)
     const endTime = formatTime(event.ends_at)
-    
-    // 找到开始时间对应的时间段
-    const startSlot = findClosestSlot(startTime)
-    // 找到结束时间对应的时间段
-    const endSlot = findClosestSlot(endTime)
-    
-    if (startSlot && grid[day]) {
-      // 计算需要填充的时间段范围
-      const startIndex = timeSlots.indexOf(startSlot)
-      const endIndex = endSlot ? timeSlots.indexOf(endSlot) : startIndex
-      
-      // 填充所有相关时间段
-      for (let i = startIndex; i <= endIndex && i < timeSlots.length; i++) {
-        const slot = timeSlots[i]
-        if (grid[day][slot] === null) {
-          grid[day][slot] = {
-            title: event.title,
-            location: event.location,
-            teacher: event.teacher,
-            endTime: endTime,
-            type: 'course',
-            isMultiSlot: startIndex !== endIndex // 标记是否为多节课
-          }
-        }
+    const covered = slotsCoveredBy(startTime, endTime)
+
+    covered.forEach((slot, index) => {
+      if (grid[day][slot] !== null) return
+      grid[day][slot] = {
+        title: event.title,
+        location: event.location,
+        teacher: event.teacher,
+        startTime,
+        endTime,
+        type: 'course',
+        // 该格不是这门课的第一小节时，说明课程从上一节延续过来。
+        isContinuation: index > 0
       }
-    }
+    })
   })
   
   // 填充自定义行程
   customEvents.value.forEach(event => {
-    const closestSlot = findClosestSlot(event.startTime)
-    if (closestSlot && grid[event.day] && grid[event.day][closestSlot] === null) {
-      grid[event.day][closestSlot] = {
+    if (!grid[event.day]) return
+    const covered = slotsCoveredBy(event.startTime, event.endTime)
+    covered.forEach((slot, index) => {
+      if (grid[event.day][slot] !== null) return
+      grid[event.day][slot] = {
+        id: event.id,
         title: event.title,
         location: event.location,
+        startTime: event.startTime,
         endTime: event.endTime,
-        type: 'custom'
+        type: 'custom',
+        isContinuation: index > 0
       }
-    }
+    })
   })
   
   return grid
+})
+
+interface GridEvent {
+  id?: number
+  title: string
+  location?: string
+  teacher?: string
+  endTime?: string
+  type: 'course' | 'custom'
+  isMultiSlot?: boolean
+}
+
+// 渲染用的单元格：把「有没有课 / 跨几行 / 是不是续节 / 配色」都在脚本里算好，
+// 模板只负责摆位置，避免在模板里写一堆可选链和断言。
+interface RenderCell {
+  empty: boolean
+  rowspan: 1 | 2
+  continuation: boolean
+  title: string
+  location: string
+  teacher: string
+  bg: string
+  border: string
+  text: string
+  customId: number | null
+}
+
+function buildRenderCell(
+  event: GridEvent | null,
+  rowspan: 1 | 2,
+  continuation: boolean
+): RenderCell {
+  if (!event) {
+    return {
+      empty: true, rowspan, continuation: false,
+      title: '', location: '', teacher: '',
+      bg: 'transparent', border: 'transparent', text: 'inherit',
+      customId: null
+    }
+  }
+  const color = getOrAssignColor(event.title)
+  return {
+    empty: false,
+    rowspan,
+    continuation,
+    title: event.title,
+    location: event.location ?? '',
+    teacher: event.teacher ?? '',
+    bg: color.bg,
+    border: color.border,
+    text: color.text,
+    customId: event.type === 'custom' && typeof event.id === 'number' ? event.id : null
+  }
+}
+
+// 把「每小节一格」的网格重新组织成「每大课一行」：一个大课内的两小节如果是同一门课，
+// 就合成一个跨两行的单元格，和教务系统原图一致；跨大课边界的课在下一行标「续」。
+const mergedBlocks = computed(() => {
+  return bigSlots.map((block, blockIndex) => {
+    const [first, second] = block.slots
+    const prevSlot = blockIndex > 0 ? bigSlots[blockIndex - 1].slots[1] : null
+    const firstCells: Record<string, RenderCell> = {}
+    const secondCells: Record<string, RenderCell> = {}
+
+    for (const day of weekdays) {
+      const firstEvent = (timetableGrid.value[day]?.[first] ?? null) as GridEvent | null
+      const secondEvent = (timetableGrid.value[day]?.[second] ?? null) as GridEvent | null
+      const prevTitle = prevSlot ? (timetableGrid.value[day]?.[prevSlot]?.title ?? null) : null
+
+      if (firstEvent && secondEvent && firstEvent.title === secondEvent.title && firstEvent.type === secondEvent.type) {
+        firstCells[day] = buildRenderCell(firstEvent, 2, prevTitle === firstEvent.title)
+        continue
+      }
+
+      firstCells[day] = buildRenderCell(firstEvent, 1, !!firstEvent && prevTitle === firstEvent.title)
+      secondCells[day] = buildRenderCell(
+        secondEvent,
+        1,
+        !!secondEvent && !!firstEvent && firstEvent.title === secondEvent.title
+      )
+    }
+
+    return {
+      label: block.label,
+      tag: block.tag,
+      firstSlot: first,
+      secondSlot: second,
+      range: `${first}-${slotInfo[second]?.end ?? ''}`,
+      firstCells,
+      secondCells
+    }
+  })
 })
 
 async function importTimetable() {
@@ -269,7 +543,9 @@ async function importTimetable() {
 async function uploadFile(file: File) {
   loading.value = true
   error.value = ''
-  uploadProgress.value = '正在上传和解析...'
+  // 截图识别要跑推理，实测 15–30 秒；先把预期说清楚，免得用户以为卡死又点一次。
+  const isImage = /\.(png|jpe?g|bmp|gif)$/i.test(file.name)
+  uploadProgress.value = isImage ? '正在识别截图，约需 15–30 秒，请不要重复点击…' : '正在上传和解析...'
 
   try {
     const formData = new FormData()
@@ -355,16 +631,21 @@ async function settle() {
   }
   loading.value = true
   error.value = ''
+  memoryNotice.value = ''
   try {
     const result = await command('dormitory', 'settle_expenses', '', {
       expenses: [{ 
-        description: '宿舍公用支出', 
+        // 「这次是干啥」既写进分摊记录，也存进回忆列表。
+        description: purpose.value.trim() || '宿舍公用支出', 
         amount: amount.value, 
         payer_id: payer.value, 
         participant_ids 
       }]
     })
     transfers.value = result.data.transfers as Transfer[]
+    // 算完账自动落一条回忆记录，不用用户再点保存。
+    saveMemoryRecord(true)
+    memoryNotice.value = '分摊结果已算好，这条也存进回忆里了。'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '分摊失败'
   } finally {
@@ -480,52 +761,166 @@ function getDayOfWeek(dateStr: string) {
         <button class="ink-button primary" @click="addCustomEvent">确认添加</button>
       </div>
       
-      <!-- 课表表格 -->
+      <!-- 课表表格：按「大课」分行，每大课下挂两个小节的时刻 -->
       <div class="timetable-grid">
         <table>
           <thead>
             <tr>
-              <th class="time-header">时间</th>
+              <th class="big-slot-header">大课</th>
+              <th class="time-header">小节</th>
               <th v-for="day in weekdays" :key="day">{{ day }}</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="time in timeSlots" :key="time">
-              <td class="time-cell"><div class="slot-label">{{ slotInfo[time]?.name }}</div><div class="slot-range">{{ time }}-{{ slotInfo[time]?.end }}</div></td>
-              <td v-for="day in weekdays" :key="day" :class="{ 'has-event': timetableGrid[day]?.[time], 'is-custom': timetableGrid[day]?.[time]?.type === 'custom' }">
-                <div v-if="timetableGrid[day]?.[time]" class="event-cell" :style="{ backgroundColor: getOrAssignColor(timetableGrid[day][time].title).bg, borderLeft: '4px solid ' + getOrAssignColor(timetableGrid[day][time].title).border }">
-                  <div class="event-title" :style="{ color: getOrAssignColor(timetableGrid[day][time].title).text }">{{ timetableGrid[day][time].title }}</div>
-                  <div class="event-info">
-                    <span v-if="timetableGrid[day][time].location">📍{{ timetableGrid[day][time].location }}</span>
-                    <span v-if="timetableGrid[day][time].teacher">👨‍🏫{{ timetableGrid[day][time].teacher }}</span>
+            <template v-for="block in mergedBlocks" :key="block.firstSlot">
+              <tr>
+                <td rowspan="2" class="big-slot-cell">
+                  <div class="big-slot-label">{{ block.label }}</div>
+                  <div class="big-slot-range">{{ block.range }}</div>
+                  <div class="big-slot-tag">{{ block.tag }} · 两小节</div>
+                </td>
+                <td class="time-cell">
+                  <div class="slot-label">{{ slotInfo[block.firstSlot]?.name }}</div>
+                  <div class="slot-range">{{ block.firstSlot }}-{{ slotInfo[block.firstSlot]?.end }}</div>
+                </td>
+                <td
+                  v-for="day in weekdays"
+                  :key="day"
+                  :class="{ 'has-event': !block.firstCells[day].empty, 'is-custom': block.firstCells[day].customId !== null }"
+                  :rowspan="block.firstCells[day].rowspan === 2 ? 2 : undefined"
+                >
+                  <div
+                    v-if="!block.firstCells[day].empty"
+                    class="event-cell"
+                    :style="{ backgroundColor: block.firstCells[day].bg, borderLeft: '4px solid ' + block.firstCells[day].border }"
+                  >
+                    <div class="event-title" :style="{ color: block.firstCells[day].text }">
+                      {{ block.firstCells[day].title }}<span v-if="block.firstCells[day].continuation" class="event-continued">（续）</span>
+                    </div>
+                    <div class="event-info">
+                      <span v-if="block.firstCells[day].location">📍{{ block.firstCells[day].location }}</span>
+                      <span v-if="block.firstCells[day].teacher">👨‍🏫{{ block.firstCells[day].teacher }}</span>
+                    </div>
+                    <button
+                      v-if="block.firstCells[day].customId !== null && !block.firstCells[day].continuation"
+                      class="remove-btn"
+                      @click="removeCustomEvent(block.firstCells[day].customId)"
+                    >×</button>
                   </div>
-                  <button v-if="timetableGrid[day][time].type === 'custom'" class="remove-btn" @click="removeCustomEvent(timetableGrid[day][time].id)">×</button>
-                </div>
-                <div v-else class="empty-cell">空档</div>
-              </td>
-            </tr>
+                  <div v-else class="empty-cell">空档</div>
+                </td>
+              </tr>
+              <tr>
+                <td class="time-cell">
+                  <div class="slot-label">{{ slotInfo[block.secondSlot]?.name }}</div>
+                  <div class="slot-range">{{ block.secondSlot }}-{{ slotInfo[block.secondSlot]?.end }}</div>
+                </td>
+                <template v-for="day in weekdays" :key="day">
+                  <!-- 上一行已经跨两行合并时，这一行不再输出该列的单元格 -->
+                  <td
+                    v-if="block.firstCells[day].rowspan !== 2"
+                    :class="{ 'has-event': !block.secondCells[day].empty, 'is-custom': block.secondCells[day].customId !== null }"
+                  >
+                    <div
+                      v-if="!block.secondCells[day].empty"
+                      class="event-cell"
+                      :style="{ backgroundColor: block.secondCells[day].bg, borderLeft: '4px solid ' + block.secondCells[day].border }"
+                    >
+                      <div class="event-title" :style="{ color: block.secondCells[day].text }">
+                        {{ block.secondCells[day].title }}<span v-if="block.secondCells[day].continuation" class="event-continued">（续）</span>
+                      </div>
+                      <div class="event-info">
+                        <span v-if="block.secondCells[day].location">📍{{ block.secondCells[day].location }}</span>
+                        <span v-if="block.secondCells[day].teacher">👨‍🏫{{ block.secondCells[day].teacher }}</span>
+                      </div>
+                      <button
+                        v-if="block.secondCells[day].customId !== null && !block.secondCells[day].continuation"
+                        class="remove-btn"
+                        @click="removeCustomEvent(block.secondCells[day].customId)"
+                      >×</button>
+                    </div>
+                    <div v-else class="empty-cell">空档</div>
+                  </td>
+                </template>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
+      <p class="timetable-legend">每小课 45 分钟；同一大课内的两小节连上，中间休息 5 分钟，大课之间休息 15 分钟。</p>
     </article>
 
-    <!-- 公用记账 -->
+    <!-- 公用记账 + 美好记录 -->
     <article class="split-panel">
-      <p class="micro">02 / 公用记账</p>
-      <h2>按分计算，生成清晰的转账建议。</h2>
+      <p class="micro">02 / 公用记账 · 美好记录</p>
+      <h2>算清每一笔，也记下当时的美好。</h2>
+      <p class="panel-sub">记账只是顺手的事；真正想留下的是「那天我们为什么花这笔钱」。</p>
+
       <div class="form-row">
+        <label>这次是干啥<input v-model="purpose" placeholder="如：一起买的西瓜 / 生日蛋糕 / 熬夜补给" /></label>
         <label>金额<input v-model="amount" inputmode="decimal" /></label>
+      </div>
+      <div class="form-row">
         <label>付款人<input v-model="payer" /></label>
         <label>参与成员<input v-model="members" /></label>
       </div>
-      <button class="ink-button primary" :disabled="loading" @click="settle">计算 AA 分摊</button>
+
+      <div class="memory-photo-row">
+        <button class="soft-button" @click="photoInput?.click()">📷 添加照片</button>
+        <input ref="photoInput" type="file" accept="image/*" multiple class="memory-photo-input" @change="handlePhotoSelect">
+        <span class="photo-hint">最多 {{ MAX_PHOTOS_PER_RECORD }} 张，自动压缩后存在本机</span>
+      </div>
+
+      <div v-if="photos.length" class="memory-photo-grid pending">
+        <div v-for="(photo, index) in photos" :key="index" class="memory-photo-thumb">
+          <img :src="photo" alt="待保存的照片" @click="previewPhoto = photo">
+          <button class="remove-btn" @click="removePhoto(index)">×</button>
+        </div>
+      </div>
+
+      <div class="panel-actions-row">
+        <button class="ink-button primary" :disabled="loading" @click="settle">{{ loading ? '计算中...' : '计算 AA 分摊' }}</button>
+        <button class="soft-button" @click="saveMemoryOnly">只记美好，不算账</button>
+      </div>
+
       <ul v-if="transfers.length" class="transfer-list">
         <li v-for="transfer in transfers" :key="`${transfer.from_member_id}${transfer.to_member_id}`">
           {{ transfer.from_member_id }} <span>→</span> {{ transfer.to_member_id }} <strong>¥{{ transfer.amount }}</strong>
         </li>
       </ul>
       <p v-else class="empty-state">填写金额和成员后计算。</p>
+      <p v-if="memoryNotice" class="memory-notice">{{ memoryNotice }}</p>
+
+      <!-- 回忆时间线：最新的在最上面 -->
+      <section class="memory-timeline">
+        <header class="memory-timeline-head">
+          <h3>美好记录</h3>
+          <span v-if="memoryRecords.length">共 {{ memoryRecords.length }} 条</span>
+        </header>
+        <p v-if="!memoryRecords.length" class="empty-state">还没有记录。算完一笔账、或者点「只记美好」，它就会自动存到这里。</p>
+        <article v-for="record in memoryRecords" :key="record.id" class="memory-record">
+          <header>
+            <strong>{{ record.purpose }}</strong>
+            <span class="memory-when">{{ formatMemoryTime(record.createdAt) }}</span>
+          </header>
+          <p class="memory-meta">¥{{ record.amount }} · {{ record.payer }} 付 · {{ record.members.join('、') }}</p>
+          <p v-if="record.transfers.length" class="memory-settle">
+            结算：{{ record.transfers.map((t) => `${t.from_member_id}→${t.to_member_id} ¥${t.amount}`).join('；') }}
+          </p>
+          <div v-if="record.photos.length" class="memory-photo-grid">
+            <div v-for="(photo, index) in record.photos" :key="index" class="memory-photo-thumb">
+              <img :src="photo" :alt="record.purpose" @click="previewPhoto = photo">
+            </div>
+          </div>
+          <button class="memory-delete" @click="removeMemoryRecord(record.id)">删除这条</button>
+        </article>
+      </section>
     </article>
+
+    <!-- 照片大图 -->
+    <div v-if="previewPhoto" class="photo-lightbox" @click="previewPhoto = ''">
+      <img :src="previewPhoto" alt="照片预览">
+    </div>
 
     <!-- 整改建议 -->
     <article class="suggestion-panel">

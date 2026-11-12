@@ -15,6 +15,7 @@ from zhihui_qilu.skills.document_engine import DocumentEngineSkill
 from zhihui_qilu.skills.wellbeing import WellbeingSkill
 from zhihui_qilu.competition_service import CompetitionService
 from zhihui_qilu.points_service import PointsService
+from zhihui_qilu.speech_service import BreezeSpeechService, MimoAsrService
 from zhihui_qilu.system_integration import SystemIntegrationService
 from zhihui_qilu.wellbeing_service import WellbeingService
 
@@ -38,6 +39,8 @@ class PlatformContainer:
         else:
             self.ai_provider = OfflineProvider()
         self.conversation = CampusConversationService(self.ai_provider, self.memory, settings)
+        self.speech = BreezeSpeechService(settings)
+        self.asr = MimoAsrService(settings)
         self.wellbeing = WellbeingService(self.memory, self.security_gateway, settings)
         self.academic = AcademicService(self.memory, settings)
         self.innovation = InnovationSkill()

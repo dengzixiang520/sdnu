@@ -14,6 +14,7 @@ from zhihui_qilu.api.routes.points import router as points_router
 from zhihui_qilu.api.routes.exchange import router as exchange_router
 from zhihui_qilu.api.routes.documents import router as documents_router
 from zhihui_qilu.api.routes.integration import router as integration_router
+from zhihui_qilu.api.routes.interview import router as interview_router
 from zhihui_qilu.api.routes.health import router as health_router
 from zhihui_qilu.bootstrap import PlatformContainer
 from zhihui_qilu.config import Settings
@@ -32,6 +33,8 @@ def create_app(settings: Settings) -> FastAPI:
             close = getattr(container.ai_provider, "close", None)
             if close is not None:
                 await close()
+            await container.speech.close()
+            await container.asr.close()
 
     app = FastAPI(title=settings.app_name, version="0.1.0", debug=settings.debug, lifespan=lifespan)
     # Keep container available even before lifespan startup (tests and direct ASGI inspection).
@@ -51,5 +54,6 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(points_router)
     app.include_router(exchange_router)
     app.include_router(documents_router)
+    app.include_router(interview_router)
     app.include_router(integration_router)
     return app

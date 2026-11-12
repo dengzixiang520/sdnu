@@ -8,6 +8,7 @@
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from fastapi.responses import FileResponse
@@ -15,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from zhihui_qilu.document_models import OfficialDocumentElements
 from zhihui_qilu.document_service import AdministrativeDocxEngine
+from zhihui_qilu.document_templates import BANNERS, TEMPLATE_CATALOG
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
@@ -22,13 +24,35 @@ DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingm
 
 
 class DocumentElements(BaseModel):
-    """前端提交的公文要素。标题与正文是渲染的最低要求。"""
+    """前端提交的公文要素。标题与正文是渲染的最低要求。
+
+    其余字段对应《山东师范大学行政文件格式细则》的版式项：版头、主送机关、附件、
+    抄送、主题词、密级、紧急程度、签发人、结束语、印发机关。
+    """
 
     reference_number: str = ""
     title: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1)
     signature: str = ""
     issue_date: str = ""
+
+    doc_type: str = "notice"
+    banner_name: str = ""
+    recipient: str = ""
+    attachments: list[str] = Field(default_factory=list)
+    cc: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    urgency: str = ""
+    secrecy: str = ""
+    signer: str = ""
+    closing: str = ""
+    print_agency: str = ""
+
+
+@router.get("/templates")
+async def list_templates() -> dict[str, Any]:
+    """返回公文文种模板库与版头选项，作为前端唯一数据源。"""
+    return {"success": True, "data": {"templates": TEMPLATE_CATALOG, "banners": BANNERS}}
 
 
 def _safe_filename(title: str) -> str:
@@ -54,6 +78,17 @@ async def export_docx(body: DocumentElements, background_tasks: BackgroundTasks)
         body=body.body,
         signature=body.signature or None,
         issue_date=body.issue_date or None,
+        doc_type=body.doc_type or "notice",
+        banner_name=body.banner_name or None,
+        recipient=body.recipient or None,
+        attachments=[item for item in body.attachments if item.strip()],
+        cc=[item for item in body.cc if item.strip()],
+        keywords=[item for item in body.keywords if item.strip()],
+        urgency=body.urgency or None,
+        secrecy=body.secrecy or None,
+        signer=body.signer or None,
+        closing=body.closing or None,
+        print_agency=body.print_agency or None,
     )
     stem = _safe_filename(body.title)
 

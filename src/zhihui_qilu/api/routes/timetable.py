@@ -1,18 +1,23 @@
 """课表导入与解析路由。
 
 本模块只负责把用户上传的课表转换成前端网格需要的形状；真正的解析规则集中在
-`SLOT_TIMES` / `_slot_range` / `_normalize_day` 三个地方，避免 Excel、文本、OCR
-三条路径各写一套导致口径漂移。
+`SLOT_TIMES` / `_slot_range` / `_normalize_day` 三个地方，避免 Excel、文本、截图
+三条路径各写一套导致口径漂移。截图走 MiMo 视觉模型识别，不再依赖本地 OCR 引擎。
 """
 
+import asyncio
+import base64
 import io
 import json
 import re
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
+
+from zhihui_qilu.config import get_settings
 
 router = APIRouter(prefix="/api/v1/timetable", tags=["timetable"])
 
@@ -240,26 +245,230 @@ def parse_excel_timetable(excel_bytes: bytes) -> list[dict[str, str]]:
     return events
 
 
-def parse_image_timetable(image_bytes: bytes) -> list[dict[str, str]]:
-    """调用本地 Tesseract 做 OCR，再交给文本解析器归一化。"""
-    try:
-        import pytesseract
-        from PIL import Image
-    except ImportError as exc:
+VISION_PROMPT = (
+    "这是一张中文课程表截图。请逐行读取表格，只输出 JSON 数组，不要任何解释，"
+    "不要 markdown 代码块。\n"
+    '格式：[{"day":"周一","time":"08:00-09:40","title":"课程名",'
+    '"location":"地点","teacher":"教师"}]\n'
+    "规则：\n"
+    "1. day 只能是 周一/周二/周三/周四/周五/周六/周日。\n"
+    "2. time 用 HH:MM-HH:MM；表格里如果是“第1-2节”这种节次写法，照抄节次即可。\n"
+    "3. 必须按表格每一行独立判断星期，不要把多行都写成同一天。\n"
+    "4. 看不清的字段留空字符串，绝对不要编造课程名、地点或教师名。\n"
+    "5. 如果图中不是课程表，输出 []。"
+)
+
+# 视觉接口通常只稳定支持这几种位图，其余格式直接给出可操作的提示。
+_IMAGE_MIME = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+    (b"BM", "image/bmp"),
+)
+
+
+def _sniff_image_mime(image_bytes: bytes) -> str:
+    """按魔数判断图片类型，避免让模型去猜 data URI 的 media type。"""
+    for magic, mime in _IMAGE_MIME:
+        if image_bytes.startswith(magic):
+            return mime
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="无法识别的图片格式，请上传 PNG、JPG、GIF 或 BMP 截图。",
+    )
+
+
+def _vision_endpoint() -> tuple[str, str, str, dict[str, Any]]:
+    """按配置返回 (base_url, model, api_key, 额外请求参数)。"""
+    settings = get_settings()
+    if settings.vision_provider == "deepseek":
+        key = settings.deepseek_vision_api_key
+        extra: dict[str, Any] = {}
+        if settings.vision_effort:
+            # DeepSeek 的推理档位；low 实测能把延迟从 4.85s 压到 4.03s，准确率不变。
+            extra["effort"] = settings.vision_effort
+        return (
+            settings.deepseek_vision_base_url,
+            settings.deepseek_vision_model,
+            key.get_secret_value() if key else "",
+            extra,
+        )
+    key = settings.mimo_api_key
+    return (
+        settings.mimo_base_url,
+        settings.mimo_model,
+        key.get_secret_value() if key else "",
+        {},
+    )
+
+
+async def _recognize_with_vision(image_bytes: bytes) -> str:
+    """调用视觉模型把课表截图转成 JSON 文本。"""
+    settings = get_settings()
+    base_url, model, api_key, extra = _vision_endpoint()
+    if not api_key:
+        env_name = (
+            "ZHQ_DEEPSEEK_VISION_API_KEY"
+            if settings.vision_provider == "deepseek"
+            else "ZHQ_MIMO_API_KEY"
+        )
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="图片课表解析需要 Pillow 与 pytesseract，当前环境未安装。",
-        ) from exc
+            detail=f"截图识别未配置视觉模型：请在 .env 中设置 {env_name} 后重启后端。",
+        )
+
+    mime = _sniff_image_mime(image_bytes)
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": VISION_PROMPT},
+                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}},
+            ],
+        }],
+        "max_tokens": settings.vision_max_tokens,
+        "temperature": 0,
+    }
+    payload.update(extra)
+    url = base_url.rstrip("/") + "/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    # 这台机器到各家 API 的 DNS 会瞬时抽风（getaddrinfo failed），单次请求不足以下结论；
+    # 答辩现场更经不起一次抖动。连接类错误重试，业务错误不重试。
+    response: httpx.Response | None = None
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=settings.vision_timeout_seconds) as client:
+                response = await client.post(url, json=payload, headers=headers)
+            break
+        except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError,
+                httpx.ConnectTimeout) as exc:
+            last_error = exc
+            if attempt < 2:
+                await asyncio.sleep(1.0 * (attempt + 1))
+        except httpx.TimeoutException as exc:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="截图识别超时。图片越大识别越慢，可以裁掉无关区域后重试，或改用文本/Excel 导入。",
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"无法连接截图识别服务：{exc}",
+            ) from exc
+
+    if response is None:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"无法连接截图识别服务（已重试 3 次）：{last_error}",
+        )
+
+    if response.status_code >= 400:
+        # 上游错误体可能很长，只留前 200 字符，避免把整段 JSON 抛给前端。
+        snippet = response.text[:200].replace("\n", " ")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"截图识别服务返回 {response.status_code}：{snippet}",
+        )
 
     try:
-        image = Image.open(io.BytesIO(image_bytes))
-        text = pytesseract.image_to_string(image, lang="chi_sim+eng")
-    except Exception as exc:  # noqa: BLE001 - Tesseract 未安装时会抛出多种运行时错误
+        body = response.json()
+        choice = body["choices"][0]
+        message = choice["message"]
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"图片 OCR 识别失败：{exc}。请确认已安装 Tesseract OCR 引擎与中文语言包。",
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="截图识别服务返回了无法解析的响应。",
         ) from exc
-    return parse_text_content(text)
+
+    content = (message.get("content") or "").strip()
+    if not content:
+        # 推理模型的 reasoning_tokens 会占用 max_tokens：额度耗尽时 finish_reason 是
+        # length 且 content 为空。这种情况要提示用户图太复杂，而不是让他干等重试。
+        reasoning = (
+            (body.get("usage") or {}).get("completion_tokens_details") or {}
+        ).get("reasoning_tokens")
+        if choice.get("finish_reason") == "length":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"这张图信息量太大，模型在推理阶段就用完了 {settings.vision_max_tokens} 的额度"
+                    f"（推理已用 {reasoning or '未知'} tokens），没能给出结果。"
+                    "建议裁掉课表以外的部分、或把图片缩小后重试；也可以直接用文本/Excel 导入。"
+                ),
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="截图识别没有返回内容，请稍后重试或改用文本/Excel 导入。",
+        )
+    return content
+
+
+def _extract_json_array(text: str) -> list[dict[str, Any]] | None:
+    """从模型输出里取出 JSON 数组；容忍 ```json 围栏和前后多余文字。"""
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```[A-Za-z]*\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    start, end = cleaned.find("["), cleaned.rfind("]")
+    if start == -1 or end <= start:
+        return None
+    try:
+        parsed = json.loads(cleaned[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, list):
+        return None
+    return [row for row in parsed if isinstance(row, dict)]
+
+
+def _events_from_rows(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """把模型返回的行按与文本/Excel 相同的口径归一化，识别不出的行直接丢弃。"""
+    events: list[dict[str, str]] = []
+    for row in rows:
+        day_of_week = _normalize_day(str(row.get("day") or ""))
+        if day_of_week is None:
+            continue
+
+        time_text = str(row.get("time") or "")
+        range_match = _RANGE_RE.search(time_text)
+        if range_match is not None:
+            start_time, end_time = range_match.group(1), range_match.group(2)
+        else:
+            slot = _slot_range(time_text)
+            if slot is None:
+                continue
+            start_time, end_time = slot[0], slot[1]
+
+        title = str(row.get("title") or "").strip()
+        if not title:
+            continue
+
+        events.append({
+            "title": title,
+            "starts_at": f"{PLACEHOLDER_DATE}T{start_time}:00",
+            "ends_at": f"{PLACEHOLDER_DATE}T{end_time}:00",
+            "location": str(row.get("location") or "").strip(),
+            "day_of_week": day_of_week,
+            "teacher": str(row.get("teacher") or "").strip(),
+        })
+    return events
+
+
+async def parse_image_timetable(image_bytes: bytes) -> list[dict[str, str]]:
+    """用视觉模型识别课表截图，再按统一口径归一化成网格事件。"""
+    raw = await _recognize_with_vision(image_bytes)
+    rows = _extract_json_array(raw)
+    if rows is not None:
+        events = _events_from_rows(rows)
+        if events:
+            return events
+    # 模型没按 JSON 返回时，退回文本解析器——同一套星期/节次规则，口径不会漂移。
+    return parse_text_content(raw)
 
 
 def _save_events(events: list[dict[str, str]]) -> None:
@@ -282,7 +491,7 @@ async def upload_timetable(request: Request, file: UploadFile = File(...)) -> di
         elif file_ext in {"xlsx", "xls"}:
             events = parse_excel_timetable(content_bytes)
         elif file_ext in {"png", "jpg", "jpeg", "bmp", "gif"}:
-            events = parse_image_timetable(content_bytes)
+            events = await parse_image_timetable(content_bytes)
         else:
             try:
                 text = content_bytes.decode("utf-8")

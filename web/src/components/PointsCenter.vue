@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { PhTrophy, PhStar, PhMedal, PhChartLine, PhUser, PhCalendar, PhGift } from '@phosphor-icons/vue'
+import {
+  PhTrophy, PhStar, PhMedal, PhChartLine, PhUser, PhCalendar, PhGift,
+  PhUsers, PhCoins, PhTrendUp, PhArrowRight, PhInfo,
+} from '@phosphor-icons/vue'
 import { useIdentity } from '../identity'
 import { requestJson } from '../api'
 import ExchangeShop from './ExchangeShop.vue'
@@ -35,17 +38,70 @@ interface PointsRecord {
   created_at: string
 }
 
+interface ExchangeProduct {
+  id: string
+  name: string
+  description: string
+  category: string
+  points: number
+  stock: number
+  image: string
+  location: string
+}
+
 const { identity } = useIdentity()
 const activeTab = ref('overview')
 const userPoints = ref<UserPoints | null>(null)
 const leaderboard = ref<UserPoints[]>([])
 const badges = ref<Badge[]>([])
 const records = ref<PointsRecord[]>([])
+const products = ref<ExchangeProduct[]>([])
 const loading = ref(false)
 const loadError = ref('')
 
 const currentUserId = computed(() => identity.value.userId)
 const currentUserName = computed(() => identity.value.displayName)
+
+/* 等级阶梯与后端 points_service.LEVELS 保持一致 */
+const LEVEL_STEPS = [
+  { name: '新手', min: 0 },
+  { name: '入门', min: 100 },
+  { name: '进阶', min: 300 },
+  { name: '熟练', min: 500 },
+  { name: '精通', min: 1000 },
+  { name: '大师', min: 2000 },
+]
+
+const totalPoints = computed(() => userPoints.value?.total_points ?? 0)
+
+const levelState = computed(() => {
+  const total = totalPoints.value
+  let index = 0
+  LEVEL_STEPS.forEach((step, i) => { if (total >= step.min) index = i })
+  const cur = LEVEL_STEPS[index]
+  const next = LEVEL_STEPS[index + 1] ?? null
+  if (!next) return { cur, next: null, need: 0, pct: 100 }
+  const span = next.min - cur.min
+  const pct = Math.max(0, Math.min(100, Math.round(((total - cur.min) / span) * 100)))
+  return { cur, next, need: next.min - total, pct }
+})
+
+const nextBadge = computed(() => {
+  const earned = new Set(userPoints.value?.badges ?? [])
+  return badges.value
+    .filter(badge => badge.requirement > 0 && !earned.has(badge.id))
+    .sort((a, b) => a.requirement - b.requirement)[0] ?? null
+})
+
+const affordableCount = computed(
+  () => products.value.filter(p => p.stock > 0 && p.points <= totalPoints.value).length,
+)
+
+const productRange = computed(() => {
+  if (products.value.length === 0) return null
+  const costs = products.value.map(p => p.points)
+  return { min: Math.min(...costs), max: Math.max(...costs) }
+})
 
 async function fetchUserPoints() {
   try {
@@ -89,11 +145,22 @@ async function fetchRecords() {
   }
 }
 
+async function fetchProducts() {
+  try {
+    const data = await requestJson<{ success: boolean; data: { products: ExchangeProduct[] } }>(
+      '/api/v1/exchange/products', {}, '获取兑换商品失败')
+    if (data.success) products.value = data.data.products
+  } catch {
+    // 兑换商品只是概览里的补充信息，失败时静默降级，不打断页面
+    products.value = []
+  }
+}
+
 const todayChecked = ref(false)
 
 function checkTodayChecked() {
   const today = new Date().toISOString().split('T')[0]
-  todayChecked.value = records.value.some(r => 
+  todayChecked.value = records.value.some(r =>
     r.source === 'checkin' && r.created_at.startsWith(today)
   )
 }
@@ -126,6 +193,7 @@ function getSourceLabel(source: string) {
     case 'competition': return '竞赛获奖'
     case 'checkin': return '每日打卡'
     case 'activity': return '活动参与'
+    case 'exchange': return '积分兑换'
     default: return source
   }
 }
@@ -141,12 +209,17 @@ function isEarned(badgeId: string) {
   return userPoints.value?.badges?.includes(badgeId) ?? false
 }
 
+function goTab(tab: string) {
+  activeTab.value = tab
+}
+
 onMounted(async () => {
   await fetchUserPoints()
   fetchLeaderboard()
   fetchBadges()
   await fetchRecords()
   checkTodayChecked()
+  fetchProducts()
 })
 </script>
 
@@ -155,7 +228,7 @@ onMounted(async () => {
     <header class="points-header">
       <div>
         <h1><PhTrophy :size="28" weight="duotone" /> 积分中心</h1>
-        <p>参与竞赛、完成打卡，积累积分兑换奖励</p>
+        <p>把竞赛获奖、每日打卡、活动参与换算成可累计的积分，再兑换成实物或校园服务</p>
       </div>
     </header>
 
@@ -202,6 +275,9 @@ onMounted(async () => {
       <button class="checkin-btn" @click="addCheckinPoints" :disabled="loading || todayChecked">
         <PhCalendar :size="20" /> {{ todayChecked ? '今日已打卡' : loading ? '打卡中...' : '每日打卡 +5积分' }}
       </button>
+      <span class="checkin-note">
+        {{ todayChecked ? '今天的 5 分已经到账，明天再来' : '每天只能打一次卡，服务端按自然日判定' }}
+      </span>
     </div>
 
     <!-- 标签页 -->
@@ -212,6 +288,159 @@ onMounted(async () => {
       <button :class="{ active: activeTab === 'records' }" @click="activeTab = 'records'">积分记录</button>
       <button :class="{ active: activeTab === 'rules' }" @click="activeTab = 'rules'">积分规则</button>
       <button :class="{ active: activeTab === 'exchange' }" @click="activeTab = 'exchange'">积分兑换</button>
+    </div>
+
+    <!-- ==================== 概览 ==================== -->
+    <div v-if="activeTab === 'overview'" class="overview-section">
+
+      <!-- 1. 成长进度 -->
+      <section class="overview-panel">
+        <div class="panel-head">
+          <h3><PhTrendUp :size="20" weight="duotone" /> 成长进度</h3>
+          <span class="panel-hint">等级由累计积分自动晋升，不需要申请</span>
+        </div>
+
+        <div class="level-track">
+          <div class="level-bar">
+            <div class="level-bar-fill" :style="{ width: levelState.pct + '%' }"></div>
+          </div>
+          <div class="level-meta">
+            <span>当前等级 <b>{{ levelState.cur.name }}</b> · 累计 {{ totalPoints }} 分</span>
+            <span v-if="levelState.next">
+              距「{{ levelState.next.name }}」还差 <b>{{ levelState.need }}</b> 分（{{ levelState.next.min }} 分解锁）
+            </span>
+            <span v-else>已到最高等级「大师」，继续保持</span>
+          </div>
+        </div>
+
+        <div class="level-steps">
+          <div
+            v-for="step in LEVEL_STEPS"
+            :key="step.name"
+            class="level-step"
+            :class="{ done: totalPoints >= step.min, current: levelState.cur.name === step.name }"
+          >
+            <span class="step-name">{{ step.name }}</span>
+            <span class="step-min">{{ step.min }} 分</span>
+          </div>
+        </div>
+
+        <p v-if="nextBadge" class="badge-hint">
+          <PhMedal :size="15" />
+          下一个徽章「{{ nextBadge.name }}」需要累计 {{ nextBadge.requirement }} 分，还差
+          {{ Math.max(0, nextBadge.requirement - totalPoints) }} 分
+        </p>
+        <p v-else-if="badges.length > 0" class="badge-hint">
+          <PhMedal :size="15" /> 积分类徽章已全部集齐，可在「徽章」页查看
+        </p>
+      </section>
+
+      <!-- 2. 积分从哪来 -->
+      <section class="overview-panel">
+        <div class="panel-head">
+          <h3><PhCoins :size="20" weight="duotone" /> 积分从哪来</h3>
+          <button type="button" class="panel-link" @click="goTab('rules')">
+            完整规则 <PhArrowRight :size="13" />
+          </button>
+        </div>
+        <p class="panel-desc">
+          三条通道互不冲突，最终都累加进「当前积分」；兑换消耗后，「竞赛积分」「打卡积分」作为累计贡献记录保持不变。
+        </p>
+
+        <div class="source-grid">
+          <div class="source-card">
+            <div class="source-head">
+              <PhTrophy :size="20" weight="duotone" />
+              <span class="source-title">竞赛获奖</span>
+            </div>
+            <span class="source-amount">3 – 100 分 / 次</span>
+            <p class="source-desc">
+              参加学校认定的竞赛并获奖后按等级核定：国家级 A1 100 分、A2 80、A3 60；B1 50、B2 40、B3 30；
+              省级 C1 20、C2 15、C3 10；校级 D1 8、D2 5、D3 3，共 12 档。
+            </p>
+            <p class="source-note">由管理员按获奖证书核定发放，学生端只读，不能自助加分。</p>
+          </div>
+
+          <div class="source-card">
+            <div class="source-head">
+              <PhCalendar :size="20" weight="duotone" />
+              <span class="source-title">每日打卡</span>
+            </div>
+            <span class="source-amount">+5 分 / 天</span>
+            <p class="source-desc">
+              每天一次心情打卡 +5 分；连续 7 天额外 +20 分，连续 30 天额外 +100 分。坚持本身就是最稳的积分来源。
+            </p>
+            <p class="source-note">服务端按自然日去重，换设备、清缓存都不能重复领取。</p>
+          </div>
+
+          <div class="source-card">
+            <div class="source-head">
+              <PhUsers :size="20" weight="duotone" />
+              <span class="source-title">活动参与</span>
+            </div>
+            <span class="source-amount">按活动核定</span>
+            <p class="source-desc">
+              参与校内讲座、志愿服务、朋辈互助等活动，由组织方登记后发放；也用于人工补录其他经认定的加分项。
+            </p>
+            <p class="source-note">与竞赛、打卡分开记账，在明细里能看清每一笔的来源。</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. 积分花到哪 -->
+      <section class="overview-panel">
+        <div class="panel-head">
+          <h3><PhGift :size="20" weight="duotone" /> 积分花到哪</h3>
+          <button type="button" class="panel-link" @click="goTab('exchange')">
+            去兑换 <PhArrowRight :size="13" />
+          </button>
+        </div>
+        <p class="panel-desc">
+          积分可以兑换实物奖品、校园服务和优先权益。兑换成功后生成 8 位兑换码，凭码到指定地点领取，虚拟权益由系统自动发放。
+        </p>
+
+        <div v-if="productRange" class="spend-stats">
+          <div class="spend-stat">
+            <span>在架兑换品</span>
+            <b>{{ products.length }} <small>件</small></b>
+          </div>
+          <div class="spend-stat">
+            <span>当前积分可兑换</span>
+            <b>{{ affordableCount }} <small>件</small></b>
+          </div>
+          <div class="spend-stat">
+            <span>兑换门槛</span>
+            <b>{{ productRange.min }} <small>– {{ productRange.max }} 分</small></b>
+          </div>
+        </div>
+        <p v-else class="panel-desc panel-desc-muted">兑换商品列表暂未取到，可切到「积分兑换」页重试。</p>
+      </section>
+
+      <!-- 4. 记账口径 -->
+      <section class="overview-panel">
+        <div class="panel-head">
+          <h3><PhInfo :size="20" weight="duotone" /> 记账口径</h3>
+          <span class="panel-hint">四条硬规则，避免分数算不清</span>
+        </div>
+        <ul class="rule-list">
+          <li>
+            <strong>兑换只扣总分</strong>
+            <span>兑换会让「当前积分」减少，但「竞赛积分」「打卡积分」作为累计贡献记录保持不变，不随消费回退。</span>
+          </li>
+          <li>
+            <strong>徽章只增不减</strong>
+            <span>已经拿到的徽章不会因为兑换消耗积分而被回收，成就记录保持完整。</span>
+          </li>
+          <li>
+            <strong>打卡一天一次，服务端判定</strong>
+            <span>按钮变灰只是前端提示，真正的重复校验在服务端按自然日完成，重复请求会被拒绝。</span>
+          </li>
+          <li>
+            <strong>竞赛积分需核定</strong>
+            <span>加分接口只对管理员开放，学生端只能查看，避免出现自助刷分。</span>
+          </li>
+        </ul>
+      </section>
     </div>
 
     <!-- 排行榜 -->
@@ -245,7 +474,9 @@ onMounted(async () => {
           <span class="record-source">{{ getSourceLabel(record.source) }}</span>
           <span class="record-detail">{{ record.source_detail }}</span>
         </div>
-        <span class="record-points">+{{ record.points }}</span>
+        <span class="record-points" :class="{ minus: record.points < 0 }">
+          {{ record.points > 0 ? '+' : '' }}{{ record.points }}
+        </span>
       </div>
       <div v-if="records.length === 0" class="empty-state">暂无积分记录</div>
     </div>

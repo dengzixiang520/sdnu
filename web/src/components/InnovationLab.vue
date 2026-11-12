@@ -5,6 +5,23 @@ import { command, requestJson } from '../api'
 import { useIdentity } from '../identity'
 
 type Tool = 'submit' | 'team' | 'proposal' | 'review' | 'upload'
+interface CompetitionDoc {
+  title: string
+  url: string
+  kind: string
+}
+interface CompetitionValue {
+  score: number
+  rating: string
+  schoolTier: string
+  summary: string
+  uses: string[]
+  nationalAwards: number
+  provincialAwards: number
+  schoolLevelAwards: number
+  totalAwards: number
+  rarityNote: string
+}
 interface Competition {
   id: string
   name: string
@@ -20,6 +37,17 @@ interface Competition {
   isAlevel: boolean
   year: string
   note: string
+  intro?: string
+  audience?: string
+  value?: CompetitionValue
+  website?: string
+  registration?: string
+  schedule?: string
+  fee?: string
+  tracks?: string[]
+  documents?: CompetitionDoc[]
+  highlights?: string[]
+  prep?: string
 }
 
 const { identity } = useIdentity()
@@ -88,6 +116,46 @@ function getTotalAwards(awards: Record<string, number>) {
   return Object.values(awards).reduce((sum, count) => sum + count, 0)
 }
 
+/* 含金量五档配色，与后端 rating_of() 的阈值一致 */
+const RATING_STYLE: Record<string, { fg: string; bg: string }> = {
+  '极高': { fg: '#a8071a', bg: '#fff1f0' },
+  '高': { fg: '#d4380d', bg: '#fff7e6' },
+  '中高': { fg: '#ad6800', bg: '#fffbe6' },
+  '中': { fg: '#237804', bg: '#f6ffed' },
+  '一般': { fg: '#595959', bg: '#f5f5f5' },
+}
+
+function ratingColor(rating?: string) {
+  return (rating && RATING_STYLE[rating]?.fg) || '#595959'
+}
+
+function ratingBg(rating?: string) {
+  return (rating && RATING_STYLE[rating]?.bg) || '#f5f5f5'
+}
+
+const sortBy = ref<'value' | 'awards' | 'default'>('value')
+
+const sortedCompetitions = computed(() => {
+  const list = [...competitions.value]
+  if (sortBy.value === 'value') {
+    list.sort((a, b) => (b.value?.score ?? 0) - (a.value?.score ?? 0))
+  } else if (sortBy.value === 'awards') {
+    list.sort((a, b) => getTotalAwards(b.awards) - getTotalAwards(a.awards))
+  }
+  return list
+})
+
+const ratingSummary = computed(() => {
+  const buckets: Record<string, number> = {}
+  for (const c of competitions.value) {
+    const r = c.value?.rating
+    if (r) buckets[r] = (buckets[r] ?? 0) + 1
+  }
+  return ['极高', '高', '中高', '中', '一般']
+    .filter(r => buckets[r])
+    .map(r => ({ rating: r, count: buckets[r] }))
+})
+
 onMounted(() => { fetchCompetitions() })
 </script>
 
@@ -114,21 +182,134 @@ onMounted(() => { fetchCompetitions() })
       <div class="detail-info-row">
         <div class="info-card-h">
           <div class="info-icon"><PhUsers :size="22" /></div>
-          <div><span class="info-label">参赛规模</span><span class="info-val">{{ selectedCompetition.teamSize }}</span></div>
+          <div><span class="info-label">建议队伍人数</span><span class="info-val">{{ selectedCompetition.teamSize }} 人</span></div>
         </div>
         <div class="info-card-h">
           <div class="info-icon"><PhStar :size="22" /></div>
           <div><span class="info-label">难度</span><span class="info-val" :style="{color: difficultyColor(selectedCompetition.difficulty)}">{{ selectedCompetition.difficulty }}</span></div>
         </div>
         <div class="info-card-h">
+          <div class="info-icon"><PhTarget :size="22" /></div>
+          <div><span class="info-label">学校认定类别</span><span class="info-val">{{ selectedCompetition.level }}</span></div>
+        </div>
+        <div class="info-card-h">
           <div class="info-icon"><PhTrophy :size="22" /></div>
-          <div><span class="info-label">获奖总数</span><span class="info-val">{{ getTotalAwards(selectedCompetition.awards) }}项</span></div>
+          <div><span class="info-label">校内获奖总数</span><span class="info-val">{{ getTotalAwards(selectedCompetition.awards) }} 项</span></div>
         </div>
       </div>
-      
-      <!-- 获奖详情 -->
+
+      <!-- 含金量 -->
+      <div v-if="selectedCompetition.value" class="value-block">
+        <div class="value-head">
+          <div class="value-score-box" :style="{ backgroundColor: ratingBg(selectedCompetition.value.rating), borderColor: ratingColor(selectedCompetition.value.rating) }">
+            <span class="value-score" :style="{ color: ratingColor(selectedCompetition.value.rating) }">{{ selectedCompetition.value.score }}</span>
+            <span class="value-score-unit">/ 100</span>
+          </div>
+          <div class="value-head-text">
+            <div class="value-title-row">
+              <h3><PhChartBar :size="20" weight="duotone" /> 含金量</h3>
+              <span class="value-rating" :style="{ color: ratingColor(selectedCompetition.value.rating), backgroundColor: ratingBg(selectedCompetition.value.rating), borderColor: ratingColor(selectedCompetition.value.rating) }">
+                {{ selectedCompetition.value.rating }}
+              </span>
+              <span class="value-tier">学校认定 {{ selectedCompetition.value.schoolTier }}</span>
+            </div>
+            <p class="value-summary">{{ selectedCompetition.value.summary }}</p>
+          </div>
+        </div>
+
+        <div class="value-bar">
+          <div class="value-bar-fill" :style="{ width: selectedCompetition.value.score + '%', background: ratingColor(selectedCompetition.value.rating) }"></div>
+        </div>
+
+        <div class="value-meta">
+          <span><b>{{ selectedCompetition.value.nationalAwards }}</b> 项国家级认定</span>
+          <span><b>{{ selectedCompetition.value.provincialAwards }}</b> 项省级认定</span>
+          <span><b>{{ selectedCompetition.value.schoolLevelAwards }}</b> 项校级</span>
+          <span class="value-rarity">{{ selectedCompetition.value.rarityNote }}</span>
+        </div>
+
+        <div class="value-uses">
+          <span class="value-uses-label">这个奖项能用在</span>
+          <span v-for="use in selectedCompetition.value.uses" :key="use" class="value-use-chip">{{ use }}</span>
+        </div>
+      </div>
+
+      <!-- 简介 + 官网 -->
+      <div class="detail-body">
+        <div class="detail-desc-block">
+          <h3><PhBookOpen :size="20" /> 竞赛简介</h3>
+          <p v-if="selectedCompetition.intro" class="competition-intro">{{ selectedCompetition.intro }}</p>
+          <p><strong>主办单位：</strong>{{ selectedCompetition.organizer || '以当年通知为准' }}</p>
+          <p v-if="selectedCompetition.audience" class="audience-line">
+            <strong>适合谁：</strong>{{ selectedCompetition.audience }}
+          </p>
+          <p class="detail-links-row">
+            <a v-if="selectedCompetition.website" :href="selectedCompetition.website" target="_blank" rel="noopener noreferrer" class="official-link">
+              <PhArrowSquareOut :size="15" /> 访问官网
+            </a>
+            <span v-if="selectedCompetition.registration" class="detail-inline-note">
+              报名参考：{{ selectedCompetition.registration }}
+            </span>
+          </p>
+        </div>
+      </div>
+
+      <!-- 赛事亮点 -->
+      <div v-if="selectedCompetition.highlights?.length" class="detail-highlights">
+        <h3><PhLightbulb :size="20" /> 赛事亮点与注意事项</h3>
+        <ul>
+          <li v-for="item in selectedCompetition.highlights" :key="item">{{ item }}</li>
+        </ul>
+      </div>
+
+      <!-- 关键信息：报名、赛程、费用、赛道 -->
+      <div class="detail-keyfacts">
+        <div class="keyfact">
+          <span class="keyfact-label"><PhCalendar :size="15" /> 大致报名时间</span>
+          <p>{{ selectedCompetition.registration || '以当年通知为准' }}</p>
+        </div>
+        <div class="keyfact">
+          <span class="keyfact-label"><PhClock :size="15" /> 赛程安排</span>
+          <p>{{ selectedCompetition.schedule || '以当年通知为准' }}</p>
+        </div>
+        <div class="keyfact">
+          <span class="keyfact-label">💰 大致费用</span>
+          <p>{{ selectedCompetition.fee || '以当年通知为准' }}</p>
+        </div>
+        <div class="keyfact">
+          <span class="keyfact-label"><PhFunnel :size="15" /> 赛道 / 组别</span>
+          <div class="chip-wrap tight">
+            <span v-for="track in selectedCompetition.tracks" :key="track" class="chip">{{ track }}</span>
+            <span v-if="!selectedCompetition.tracks?.length" class="keyfact-empty">以当年通知为准</span>
+          </div>
+        </div>
+      </div>
+      <p class="keyfacts-note">报名时间、赛程与费用为往年规律整理，用于提前规划；具体以主办方当年通知为准。</p>
+
+      <!-- 需要学什么 -->
+      <div class="detail-bottom-row">
+        <div class="bottom-card">
+          <h4><PhMedal :size="18" /> 主要需要学习的内容</h4>
+          <div class="chip-wrap">
+            <span v-for="s in selectedCompetition.skills" :key="s" class="chip green">{{ s }}</span>
+            <span v-if="!selectedCompetition.skills?.length" class="keyfact-empty">暂无</span>
+          </div>
+        </div>
+        <div class="bottom-card">
+          <h4><PhLightbulb :size="18" /> 备赛建议</h4>
+          <p class="tips-copy">{{ selectedCompetition.tips || '暂无' }}</p>
+        </div>
+      </div>
+
+      <!-- 备赛路线 -->
+      <div v-if="selectedCompetition.prep" class="detail-prep">
+        <h3><PhRocketLaunch :size="20" /> 备赛路线（从零到参赛）</h3>
+        <p>{{ selectedCompetition.prep }}</p>
+      </div>
+
+      <!-- 获奖情况 -->
       <div class="awards-detail">
-        <h3><PhTrophy :size="20" /> 获奖情况</h3>
+        <h3><PhTrophy :size="20" /> 校内获奖情况</h3>
         <div class="awards-grid">
           <div v-for="(count, level) in selectedCompetition.awards" :key="level" class="award-item" :style="{backgroundColor: awardLevelBg(level), borderColor: awardLevelColor(level)}">
             <span class="award-level" :style="{color: awardLevelColor(level)}">{{ level }}</span>
@@ -141,26 +322,20 @@ onMounted(() => { fetchCompetitions() })
           <p>B1/B2/B3 = B类竞赛国家级一等/二等/三等</p>
           <p>C1/C2/C3 = C类竞赛省级一等/二等/三等</p>
           <p>D1/D2/D3 = D类竞赛校级一等/二等/三等</p>
+          <p>校级 / 不入级 = 校级竞赛奖项，或省级以上三等奖未达到学校认定等级</p>
         </div>
       </div>
-      
-      <!-- 竞赛介绍 -->
-      <div class="detail-body">
-        <div class="detail-desc-block">
-          <h3><PhBookOpen :size="20" /> 竞赛介绍</h3>
-          <p>主办单位：{{ selectedCompetition.organizer }}</p>
-          <p>{{ selectedCompetition.tips }}</p>
+
+      <!-- 文档与资源 -->
+      <div class="detail-docs">
+        <h3><PhBookOpen :size="20" /> 直达链接</h3>
+        <div class="doc-list">
+          <a v-for="doc in selectedCompetition.documents" :key="doc.url" :href="doc.url" target="_blank" rel="noopener noreferrer" class="doc-link" :class="{ 'is-official': doc.kind === 'official' }">
+            <PhArrowSquareOut :size="15" />
+            <span>{{ doc.title }}</span>
+          </a>
         </div>
-      </div>
-      
-      <!-- 所需技能 -->
-      <div class="detail-bottom-row">
-        <div class="bottom-card">
-          <h4><PhMedal :size="18" /> 所需技能</h4>
-          <div class="chip-wrap">
-            <span v-for="s in selectedCompetition.skills" :key="s" class="chip green">{{ s }}</span>
-          </div>
-        </div>
+        <p class="keyfacts-note">链接均指向官网或官方通知页，点击在新标签页打开。</p>
       </div>
     </div>
     
@@ -179,26 +354,48 @@ onMounted(() => { fetchCompetitions() })
         <!-- 数据说明 -->
         <div class="data-notice-banner">
           <PhClock :size="16" />
-          <span>当前数据为2024-2025学年学校统计结果，仅供参考。后续将上传更多年度数据。</span>
+          <span>获奖数据为 2024-2025 学年学校统计结果；含金量评分综合学校认定类别、国家级获奖突破与赛事行业认可度换算，仅供参考；报名时间、赛程与费用为往年规律整理，具体以主办方当年通知为准。</span>
         </div>
         
         <div class="feed-controls">
           <label><PhMagnifyingGlass :size="19" /><input v-model="search" placeholder="搜索竞赛" @input="fetchCompetitions"></label>
           <div><PhFunnel :size="17" /><button v-for="item in categories" :key="item" :class="{active:category===item}" @click="category=item;fetchCompetitions()">{{ item }}</button></div>
         </div>
-        
+
+        <div class="sort-row">
+          <span class="sort-label">排序</span>
+          <button :class="{ active: sortBy === 'value' }" @click="sortBy = 'value'">按含金量</button>
+          <button :class="{ active: sortBy === 'awards' }" @click="sortBy = 'awards'">按校内获奖数</button>
+          <button :class="{ active: sortBy === 'default' }" @click="sortBy = 'default'">按录入顺序</button>
+          <span class="sort-legend">
+            <span v-for="item in ratingSummary" :key="item.rating" class="sort-legend-item">
+              <i :style="{ backgroundColor: ratingColor(item.rating) }"></i>{{ item.rating }} {{ item.count }}
+            </span>
+          </span>
+        </div>
+
         <section class="notice-stream">
-          <article v-for="comp in competitions" :key="comp.id" class="competition-card" @click="viewDetail(comp)">
+          <article v-for="comp in sortedCompetitions" :key="comp.id" class="competition-card" @click="viewDetail(comp)">
             <div class="notice-kind">
               <span class="category-tag">{{ comp.category }}</span>
-              
+              <span
+                v-if="comp.value"
+                class="value-badge"
+                :style="{ color: ratingColor(comp.value.rating), backgroundColor: ratingBg(comp.value.rating), borderColor: ratingColor(comp.value.rating) }"
+                :title="`含金量 ${comp.value.score}/100 · ${comp.value.rating}`"
+              >含金量 {{ comp.value.score }}</span>
             </div>
             <div class="competition-info">
               <h2>{{ comp.name }}</h2>
+              <p v-if="comp.intro" class="card-intro">{{ comp.intro }}</p>
               <div class="competition-meta">
-                <span><PhUsers :size="14" /> {{ comp.teamSize }}</span>
-                <span :style="{color:difficultyColor(comp.difficulty)}"><PhStar :size="14" /> {{ comp.difficulty }}</span>
-                <span><PhTrophy :size="14" /> {{ getTotalAwards(comp.awards) }}项获奖</span>
+                <span><PhUsers :size="14" /> {{ comp.teamSize }} 人</span>
+                <span :style="{color:difficultyColor(comp.difficulty)}"><PhStar :size="14" /> 难度 {{ comp.difficulty }}</span>
+                <span v-if="comp.level"><PhTarget :size="14" /> {{ comp.level }}</span>
+                <span><PhTrophy :size="14" /> {{ getTotalAwards(comp.awards) }} 项获奖</span>
+              </div>
+              <div class="competition-meta muted">
+                <span v-if="comp.registration"><PhCalendar :size="14" /> 报名：{{ comp.registration }}</span>
               </div>
               <div class="awards-preview">
                 <span v-for="(count, level) in comp.awards" :key="level" class="award-badge" :style="{backgroundColor: awardLevelBg(level), color: awardLevelColor(level), borderColor: awardLevelColor(level)}">
@@ -232,6 +429,12 @@ onMounted(() => { fetchCompetitions() })
           <h3>竞赛统计</h3>
           <div class="stat-item"><span>竞赛数</span><span class="stat-value">{{ competitions.length }}</span></div>
           <div class="stat-item"><span>类别数</span><span class="stat-value">{{ categories.length - 1 }}</span></div>
+          <div class="stat-item"><span>校内获奖记录</span><span class="stat-value">{{ competitions.reduce((s, c) => s + getTotalAwards(c.awards), 0) }}</span></div>
+          <div v-if="ratingSummary.length" class="stat-ratings">
+            <span v-for="item in ratingSummary" :key="item.rating" class="stat-rating" :style="{ color: ratingColor(item.rating), backgroundColor: ratingBg(item.rating) }">
+              {{ item.rating }} {{ item.count }}
+            </span>
+          </div>
         </div>
       </aside>
     </template>

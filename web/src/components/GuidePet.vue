@@ -6,7 +6,7 @@
  * CC BY-NC-SA 4.0，非商业使用并保留署名），已转成带透明通道的动画 WebP；
  * 出处与许可见 NOTICE.md。
  */
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { PhArrowUp, PhMinus, PhPaperPlaneTilt, PhSparkle } from '@phosphor-icons/vue'
 import { chatHistory, command, requestJson, streamChat, type ChatMessage } from '../api'
@@ -77,6 +77,50 @@ function pickAnimation(next: PetState) {
   currentAnim.value = pool[Math.floor(Math.random() * pool.length)]
 }
 
+// ---------- 对话框位置 ----------
+/**
+ * 对话框不能压在桌宠身上，否则右下角的发送按钮会被精灵图盖住。
+ * 优先排在桌宠左侧；左边放不下就翻到右侧；两边都放不下再夹回视口内。
+ * 结果以 CSS 变量回传，保持 .guide-dialog 相对 .guide-pet 定位。
+ */
+const DIALOG_GAP = 14
+/** 关闭状态下返回空样式；单独命名是为了让两个分支的类型都落在 Record<string,string> 上。 */
+const NO_DIALOG_STYLE: Record<string, string> = {}
+const dialogStyle = computed<Record<string, string>>(() => {
+  if (!open.value) return NO_DIALOG_STYLE
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const petWidth = pet.value?.offsetWidth ?? 168
+  const petHeight = pet.value?.offsetHeight ?? 208
+  const compact = vw <= 820
+  const width = compact ? vw - 24 : Math.min(370, vw - 32)
+  const height = compact ? Math.min(Math.round(vh * 0.68), 520) : Math.min(480, vh - 32)
+  let left: number
+  let top: number
+  let flipped = false
+  if (compact) {
+    left = 12
+    top = vh - height - 12
+  } else {
+    left = position.value.x - width - DIALOG_GAP
+    if (left < 12) {
+      const rightSide = position.value.x + petWidth + DIALOG_GAP
+      if (rightSide + width <= vw - 12) { left = rightSide; flipped = true } else { left = vw - width - 12 }
+    }
+    top = position.value.y + petHeight - height
+  }
+  left = Math.max(12, Math.min(left, vw - width - 12))
+  top = Math.max(12, Math.min(top, vh - height - 12))
+  return {
+    '--dlg-left': `${Math.round(left - position.value.x)}px`,
+    '--dlg-top': `${Math.round(top - position.value.y)}px`,
+    '--dlg-width': `${Math.round(width)}px`,
+    '--dlg-height': `${Math.round(height)}px`,
+    // 小圆角朝向桌宠一侧，像一句话的气泡尾
+    '--dlg-radius': flipped || compact ? '20px 20px 20px 5px' : '20px 20px 5px 20px',
+  }
+})
+
 function clampPosition(x: number, y: number) {
   const width = pet.value?.offsetWidth ?? 160
   const height = pet.value?.offsetHeight ?? 200
@@ -141,6 +185,9 @@ function cancelPhysics() {
   physicsFrame = 0; flying.value = false; squash.value = 1
 }
 function startPhysics() {
+  // 甩飞时先收起浮层，避免对话框被拖着在屏幕上飞
+  open.value = false
+  cardOpen.value = false
   const gravity = 1400
   const restitution = 0.78
   const friction = 2.5
@@ -312,7 +359,7 @@ onBeforeUnmount(() => {
       <footer>数据来自本平台，非外部账户</footer>
     </section>
 
-    <section v-if="open" class="guide-dialog" aria-label="与暖心引导员对话" @pointerdown.stop>
+    <section v-if="open" class="guide-dialog" :style="dialogStyle" aria-label="与暖心引导员对话" @pointerdown.stop>
       <header><div><span class="guide-online"><i :class="{ offline: providerOnline === false }"></i>小曦瑶 · {{ stateCopy[state] }}</span><small>{{ providerOnline === false ? '当前为本地陪伴模式' : '多轮对话仅在本会话保留' }}</small></div><button type="button" aria-label="最小化引导员" @click="minimize"><PhMinus :size="18" /></button></header>
       <div class="guide-messages" aria-live="polite">
         <div v-for="(item, index) in messages" :key="index" :class="['guide-message', item.role]">
