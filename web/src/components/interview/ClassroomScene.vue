@@ -34,14 +34,40 @@ interface ExaminerRig {
   head: THREE.Group
   shoulderL: THREE.Mesh
   shoulderR: THREE.Mesh
+  /** 肩部的基准高度，呼吸时在这个值上下微动 */
+  shoulderY: number
   anchor: THREE.Vector3
   phase: number
 }
 
-const EXAMINER_SEATS: Array<{ id: string; x: number; suit: number; tie: number; hair: number; scale: number }> = [
-  { id: 'host', x: 0, suit: 0x2b3a52, tie: 0x8c2f39, hair: 0x241f1c, scale: 1.02 },
-  { id: 'major', x: -1.25, suit: 0x39463c, tie: 0x3f5a72, hair: 0x1d1a18, scale: 1.0 },
-  { id: 'english', x: 1.25, suit: 0x453246, tie: 0x9a7f52, hair: 0x2a2220, scale: 0.97 },
+const EXAMINER_SEATS: Array<{
+  id: string
+  x: number
+  suit: number
+  lapel: number
+  tie: number
+  hair: number
+  skin: number
+  lip: number
+  glasses: boolean
+  hairStyle: 'short' | 'medium'
+  scale: number
+}> = [
+  {
+    id: 'host', x: 0, scale: 1.02,
+    suit: 0x243349, lapel: 0x2c3d55, tie: 0x1f3350, hair: 0x4a4640,
+    skin: 0xdcb191, lip: 0xb0746a, glasses: true, hairStyle: 'short',
+  },
+  {
+    id: 'major', x: -1.25, scale: 1.0,
+    suit: 0x33473a, lapel: 0x3d5445, tie: 0x7a2b2b, hair: 0x1d1712,
+    skin: 0xd8ab86, lip: 0xa96b62, glasses: false, hairStyle: 'short',
+  },
+  {
+    id: 'english', x: 1.25, scale: 0.97,
+    suit: 0x53344f, lapel: 0x5f3c5b, tie: 0x000000, hair: 0x2b1d17,
+    skin: 0xe8c4a4, lip: 0xc07a72, glasses: false, hairStyle: 'medium',
+  },
 ]
 
 const EXAMINER_LABELS: Array<{ id: string; name: string; title: string }> = [
@@ -111,10 +137,25 @@ function blackboardTexture(): THREE.CanvasTexture {
     bg.addColorStop(1, '#243530')
     ctx.fillStyle = bg
     ctx.fillRect(0, 0, 1024, 400)
-    ctx.globalAlpha = 0.06
-    ctx.fillStyle = '#ffffff'
-    for (let i = 0; i < 20; i += 1) {
-      ctx.fillRect(Math.random() * 1024, Math.random() * 400, 110 + Math.random() * 170, 5 + Math.random() * 8)
+    // 粉笔灰：细点。之前画成大色块，远看像镜头光斑
+    for (let i = 0; i < 3600; i += 1) {
+      ctx.globalAlpha = 0.02 + Math.random() * 0.045
+      ctx.fillStyle = Math.random() > 0.5 ? '#ffffff' : '#cfe0d6'
+      const s = 1 + Math.random() * 2.6
+      ctx.fillRect(Math.random() * 1024, Math.random() * 400, s, s)
+    }
+    // 板擦拖痕：压扁的细长椭圆
+    ctx.globalAlpha = 0.05
+    for (let i = 0; i < 18; i += 1) {
+      ctx.fillStyle = '#b9cec3'
+      ctx.save()
+      ctx.translate(Math.random() * 1024, Math.random() * 400)
+      ctx.rotate((Math.random() - 0.5) * 0.5)
+      ctx.scale(1, 0.12 + Math.random() * 0.1)
+      ctx.beginPath()
+      ctx.arc(0, 0, 50 + Math.random() * 90, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
     }
     ctx.globalAlpha = 1
     ctx.fillStyle = '#f2f5ef'
@@ -160,38 +201,159 @@ function bannerTexture(): THREE.CanvasTexture {
   })
 }
 
-/** 木地板：横条纹 + 细微噪点，避免纯色显得假。 */
-function floorTexture(): THREE.CanvasTexture {
-  return canvasTexture(1024, 1024, (ctx) => {
-    ctx.fillStyle = '#b39b7d'
-    ctx.fillRect(0, 0, 1024, 1024)
-    for (let row = 0; row < 16; row += 1) {
-      const y = row * 64
-      const offset = row % 2 === 0 ? 0 : 128
-      for (let col = -1; col < 9; col += 1) {
-        const x = col * 256 + offset
-        const tone = 168 + Math.floor(Math.random() * 26)
-        ctx.fillStyle = `rgb(${tone + 12}, ${tone - 4}, ${tone - 34})`
-        ctx.fillRect(x + 2, y + 2, 252, 60)
-        ctx.strokeStyle = 'rgba(90,70,50,0.18)'
-        ctx.lineWidth = 1
-        for (let line = 0; line < 3; line += 1) {
-          ctx.beginPath()
-          ctx.moveTo(x + 8, y + 12 + line * 18 + Math.random() * 6)
-          ctx.lineTo(x + 244, y + 14 + line * 18 + Math.random() * 6)
-          ctx.stroke()
-        }
-      }
+/** 大理石：每块砖从同一张板上切下来，所以纹路止于砖缝。 */
+function drawMarbleTile(ctx: CanvasRenderingContext2D, ox: number, oy: number, size: number): void {
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(ox, oy, size, size)
+  ctx.clip()
+
+  const base = ctx.createLinearGradient(ox, oy, ox + size, oy + size)
+  base.addColorStop(0, '#efedea')
+  base.addColorStop(0.5, '#e3e0da')
+  base.addColorStop(1, '#ebe8e2')
+  ctx.fillStyle = base
+  ctx.fillRect(ox, oy, size, size)
+
+  for (let i = 0; i < 700; i += 1) {
+    const r = 152 + Math.floor(Math.random() * 68)
+    const g = 150 + Math.floor(Math.random() * 64)
+    const b = 142 + Math.floor(Math.random() * 58)
+    ctx.fillStyle = `rgba(${r},${g},${b},0.05)`
+    const s = 2 + Math.random() * 12
+    ctx.fillRect(ox + Math.random() * size, oy + Math.random() * size, s, s)
+  }
+
+  // 主纹路：随机游走，被砖缝裁掉
+  for (let v = 0; v < 4; v += 1) {
+    let x = ox + Math.random() * size
+    let y = oy + Math.random() * size
+    let ang = Math.random() * Math.PI * 2
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+    for (let i = 0; i < 60; i += 1) {
+      ang += (Math.random() - 0.5) * 0.55
+      x += Math.cos(ang) * (size / 56)
+      y += Math.sin(ang) * (size / 56)
+      ctx.lineTo(x, y)
     }
-    ctx.strokeStyle = 'rgba(80,62,44,0.28)'
+    ctx.strokeStyle = 'rgba(118,120,122,0.48)'
+    ctx.lineWidth = 1.3 + Math.random() * 2.2
+    ctx.lineCap = 'round'
+    ctx.stroke()
+  }
+
+  // 细纹
+  for (let v = 0; v < 10; v += 1) {
+    let x = ox + Math.random() * size
+    let y = oy + Math.random() * size
+    let ang = Math.random() * Math.PI * 2
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+    for (let i = 0; i < 32; i += 1) {
+      ang += (Math.random() - 0.5) * 0.72
+      x += Math.cos(ang) * (size / 46)
+      y += Math.sin(ang) * (size / 46)
+      ctx.lineTo(x, y)
+    }
+    ctx.strokeStyle = 'rgba(148,150,150,0.3)'
+    ctx.lineWidth = 0.7
+    ctx.stroke()
+  }
+
+  ctx.restore()
+}
+
+function floorTexture(): THREE.CanvasTexture {
+  const texture = canvasTexture(1024, 1024, (ctx) => {
+    const size = 512
+    for (let ty = 0; ty < 2; ty += 1) {
+      for (let tx = 0; tx < 2; tx += 1) drawMarbleTile(ctx, tx * size, ty * size, size)
+    }
+    ctx.strokeStyle = 'rgba(170,166,158,0.5)'
     ctx.lineWidth = 2
-    for (let row = 0; row <= 16; row += 1) {
+    ctx.beginPath()
+    ctx.moveTo(0, size)
+    ctx.lineTo(1024, size)
+    ctx.moveTo(size, 0)
+    ctx.lineTo(size, 1024)
+    ctx.stroke()
+    ctx.strokeRect(1, 1, 1022, 1022)
+  })
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  texture.repeat.set(9, 6)
+  return texture
+}
+
+/** 复古木纹：暖棕底 + 横向年轮 + 木节 + 磨损划痕。整场共用一张。 */
+let woodTextureCache: THREE.CanvasTexture | undefined
+function woodTexture(): THREE.CanvasTexture {
+  if (woodTextureCache) return woodTextureCache
+  const texture = canvasTexture(1024, 512, (ctx) => {
+    const bg = ctx.createLinearGradient(0, 0, 0, 512)
+    bg.addColorStop(0, '#a06a37')
+    bg.addColorStop(0.45, '#8a5629')
+    bg.addColorStop(1, '#6f4420')
+    ctx.fillStyle = bg
+    ctx.fillRect(0, 0, 1024, 512)
+
+    for (let i = 0; i < 170; i += 1) {
+      const y0 = (i / 170) * 512 + (Math.random() - 0.5) * 5
       ctx.beginPath()
-      ctx.moveTo(0, row * 64)
-      ctx.lineTo(1024, row * 64)
+      ctx.moveTo(0, y0)
+      for (let x = 0; x <= 1024; x += 14) {
+        ctx.lineTo(x, y0 + Math.sin(x * 0.0055 + i * 0.7) * (2 + Math.random() * 3.2))
+      }
+      ctx.strokeStyle = Math.random() > 0.45 ? 'rgba(58,30,12,0.20)' : 'rgba(206,158,104,0.13)'
+      ctx.lineWidth = 0.6 + Math.random() * 1.7
       ctx.stroke()
     }
+
+    for (let k = 0; k < 3; k += 1) {
+      const cx = 130 + Math.random() * 764
+      const cy = 90 + Math.random() * 332
+      for (let r = 5; r < 30; r += 4) {
+        ctx.beginPath()
+        ctx.ellipse(cx, cy, r * 1.8, r, 0.2, 0, Math.PI * 2)
+        ctx.strokeStyle = 'rgba(66,34,14,0.15)'
+        ctx.lineWidth = 1.3
+        ctx.stroke()
+      }
+    }
+
+    for (let i = 0; i < 24; i += 1) {
+      ctx.globalAlpha = 0.04 + Math.random() * 0.05
+      ctx.fillStyle = Math.random() > 0.5 ? '#dcb887' : '#4b2b13'
+      ctx.beginPath()
+      ctx.ellipse(Math.random() * 1024, Math.random() * 512,
+        18 + Math.random() * 70, 7 + Math.random() * 22, Math.random() * 3, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    ctx.globalAlpha = 1
   })
+  woodTextureCache = texture
+  return texture
+}
+
+/** 墙面：暖白抹灰，带极细噪点，避免大面积纯色显假。 */
+function wallTexture(): THREE.CanvasTexture {
+  const texture = canvasTexture(512, 512, (ctx) => {
+    ctx.fillStyle = '#efeae0'
+    ctx.fillRect(0, 0, 512, 512)
+    for (let i = 0; i < 1600; i += 1) {
+      const light = Math.random() > 0.5
+      ctx.fillStyle = light
+        ? `rgba(255,255,255,${0.02 + Math.random() * 0.03})`
+        : `rgba(120,112,100,${0.012 + Math.random() * 0.022})`
+      const s = 1 + Math.random() * 3
+      ctx.fillRect(Math.random() * 512, Math.random() * 512, s, s)
+    }
+  })
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  texture.repeat.set(4, 2)
+  return texture
 }
 
 /** 墙上的宣传板，给侧墙一点信息量。 */
@@ -259,12 +421,28 @@ function buildExaminer(seat: (typeof EXAMINER_SEATS)[number], index: number): Ex
   const group = new THREE.Group()
   group.position.set(seat.x, 0, EXAMINER_Z)
   group.scale.setScalar(seat.scale)
+  // 侧边两位略微转向考生；正对镜头会显得像证件照
+  group.rotation.y = -seat.x * 0.22
 
-  const skin = mat({ color: 0xd8b096, roughness: 0.85 })
-  const suit = mat({ color: seat.suit, roughness: 0.78 })
-  const shirt = mat({ color: 0xf0eee9, roughness: 0.7 })
-  const tie = mat({ color: seat.tie, roughness: 0.6 })
-  const hair = mat({ color: seat.hair, roughness: 0.9 })
+  const skin = mat({ color: seat.skin, roughness: 0.58 })
+  const suit = mat({ color: seat.suit, roughness: 0.82, metalness: 0.04 })
+  const lapelMat = mat({ color: seat.lapel, roughness: 0.72, metalness: 0.06 })
+  const shirt = mat({ color: 0xf7f6f2, roughness: 0.5 })
+  const tieMat = mat({ color: seat.tie, roughness: 0.55 })
+  const hair = mat({ color: seat.hair, roughness: 0.62 })
+  const ink = mat({ color: 0x17171a, roughness: 0.45, metalness: 0.15 })
+  const lipMat = mat({ color: seat.lip, roughness: 0.5 })
+  const irisMat = mat({ color: 0x3b2a1e, roughness: 0.35 })
+
+  /** 两点之间生成一根胶囊，用来拼上下臂，肘部才能自然弯。 */
+  const limb = (a: THREE.Vector3, b: THREE.Vector3, radius: number, material: THREE.Material): THREE.Mesh => {
+    const dir = new THREE.Vector3().subVectors(b, a)
+    const len = dir.length()
+    const item = mesh(new THREE.CapsuleGeometry(radius, Math.max(0.002, len - radius * 2), 6, 12), material)
+    item.position.copy(a).add(b).multiplyScalar(0.5)
+    item.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize())
+    return item
+  }
 
   // 椅子
   const chairMat = mat({ color: 0x3b3f46, roughness: 0.65, metalness: 0.1 })
@@ -278,88 +456,205 @@ function buildExaminer(seat: (typeof EXAMINER_SEATS)[number], index: number): Ex
   chairPost.position.set(0, 0.23, 0)
   group.add(chairPost)
 
-  // 躯干：略前倾，坐着的人不会是笔直的
-  const torso = mesh(new THREE.CapsuleGeometry(0.185, 0.32, 6, 14), suit)
-  torso.position.set(0, 0.96, 0)
-  torso.rotation.x = 0.06
-  torso.scale.set(1.1, 1, 0.76)
+  // 躯干：椭圆截面，肩宽收窄到头宽两倍左右。之前是 0.185 的胶囊，像团块
+  const torso = mesh(new THREE.CylinderGeometry(0.158, 0.126, 0.54, 24, 1), suit)
+  torso.position.set(0, 0.755, 0)
+  torso.scale.set(1, 1, 0.72)
   group.add(torso)
 
-  const collar = mesh(new THREE.CylinderGeometry(0.085, 0.105, 0.1, 14), shirt, false)
-  collar.position.set(0, 1.23, 0.03)
-  group.add(collar)
-  const tieMesh = mesh(new THREE.BoxGeometry(0.05, 0.24, 0.02), tie, false)
-  tieMesh.position.set(0, 1.09, 0.13)
-  tieMesh.rotation.x = 0.08
-  group.add(tieMesh)
-
-  // 肩：比第一版收窄，避免"驼背"的团块感
-  const shoulderL = mesh(new THREE.SphereGeometry(0.098, 16, 12), suit)
-  shoulderL.position.set(-0.19, 1.18, 0)
-  shoulderL.scale.set(1, 0.82, 0.85)
+  const shoulderY = 1.005
+  const shoulderL = mesh(new THREE.SphereGeometry(0.056, 16, 12), suit)
+  shoulderL.position.set(-0.132, shoulderY, 0)
+  shoulderL.scale.set(1, 1, 0.8)
   group.add(shoulderL)
-  const shoulderR = mesh(new THREE.SphereGeometry(0.098, 16, 12), suit)
-  shoulderR.position.set(0.19, 1.18, 0)
-  shoulderR.scale.set(1, 0.82, 0.85)
+  const shoulderR = mesh(new THREE.SphereGeometry(0.056, 16, 12), suit)
+  shoulderR.position.set(0.132, shoulderY, 0)
+  shoulderR.scale.set(1, 1, 0.8)
   group.add(shoulderR)
 
-  // 手臂：搭在桌面上
-  const armL = mesh(new THREE.CapsuleGeometry(0.062, 0.32, 5, 12), suit)
-  armL.position.set(-0.23, 0.99, 0.2)
-  armL.rotation.set(1.24, 0, 0.1)
-  group.add(armL)
-  const armR = mesh(new THREE.CapsuleGeometry(0.062, 0.32, 5, 12), suit)
-  armR.position.set(0.23, 0.99, 0.2)
-  armR.rotation.set(1.24, 0, -0.1)
-  group.add(armR)
-  const handL = mesh(new THREE.SphereGeometry(0.055, 12, 10), skin)
-  handL.position.set(-0.21, 0.9, 0.38)
-  handL.scale.set(1, 0.8, 1.3)
-  group.add(handL)
-  const handR = mesh(new THREE.SphereGeometry(0.055, 12, 10), skin)
-  handR.position.set(0.21, 0.9, 0.38)
-  handR.scale.set(1, 0.8, 1.3)
-  group.add(handR)
+  // 白衬衫领口：只露一小条三角。之前是块"白围兜"，占了半个胸口
+  const vShape = new THREE.Shape()
+  vShape.moveTo(-0.034, 0.074)
+  vShape.lineTo(0.034, 0.074)
+  vShape.lineTo(0, -0.038)
+  vShape.closePath()
+  const vMesh = mesh(new THREE.ShapeGeometry(vShape), shirt, false)
+  vMesh.position.set(0, 0.906, 0.111)
+  group.add(vMesh)
 
-  // 头（放在独立 Group 里，方便做点头和转头）
-  const head = new THREE.Group()
-  head.position.set(0, 1.34, 0.02)
-  const neck = mesh(new THREE.CylinderGeometry(0.052, 0.062, 0.09, 12), skin, false)
-  neck.position.set(0, -0.05, 0)
-  head.add(neck)
-  const skull = mesh(new THREE.SphereGeometry(0.112, 20, 16), skin)
-  skull.position.set(0, 0.06, 0)
-  skull.scale.set(0.94, 1.06, 1)
-  head.add(skull)
-  const hairCap = mesh(new THREE.SphereGeometry(0.118, 20, 16, 0, Math.PI * 2, 0, Math.PI * 0.6), hair)
-  hairCap.position.set(0, 0.072, -0.006)
-  hairCap.scale.set(0.98, 1.04, 1.04)
-  head.add(hairCap)
-  // 后脑勺的头发，让侧面看不是一个光球
-  const hairBack = mesh(new THREE.SphereGeometry(0.104, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.75), hair)
-  hairBack.position.set(0, 0.055, -0.03)
-  hairBack.scale.set(0.94, 0.96, 0.9)
-  head.add(hairBack)
-  const browMat = mat({ color: 0x2b2320, roughness: 0.9 })
-  const eyeMat = mat({ color: 0x1b1b1f, roughness: 0.5 })
+  const collar = mesh(new THREE.CylinderGeometry(0.047, 0.051, 0.028, 16, 1, true), shirt, false)
+  collar.position.set(0, 0.966, 0.006)
+  collar.scale.set(1, 1, 0.7)
+  group.add(collar)
+
+  // 西装翻领：贴胸口两侧框住衬衫
   for (const side of [-1, 1]) {
-    const eye = mesh(new THREE.SphereGeometry(0.016, 10, 8), eyeMat, false)
-    eye.position.set(side * 0.041, 0.068, 0.101)
-    eye.scale.set(1, 1, 0.6)
+    const l = mesh(new THREE.BoxGeometry(0.05, 0.155, 0.012), lapelMat, false)
+    l.position.set(side * 0.058, 0.893, 0.102)
+    l.rotation.z = -side * 0.2
+    l.rotation.y = -side * 0.1
+    group.add(l)
+  }
+
+  // 领带：带尖的版型。之前是一根棍子；苏静宜开领不系
+  if (seat.id !== 'english') {
+    const tShape = new THREE.Shape()
+    tShape.moveTo(-0.018, 0.068)
+    tShape.lineTo(0.018, 0.068)
+    tShape.lineTo(0.013, -0.018)
+    tShape.lineTo(0, -0.062)
+    tShape.lineTo(-0.013, -0.018)
+    tShape.closePath()
+    const tail = mesh(new THREE.ShapeGeometry(tShape), tieMat, false)
+    tail.position.set(0, 0.898, 0.115)
+    group.add(tail)
+    const knot = mesh(new THREE.BoxGeometry(0.03, 0.026, 0.016), tieMat, false)
+    knot.position.set(0, 0.948, 0.116)
+    group.add(knot)
+  }
+
+  for (const y of [0.78, 0.72]) {
+    const btn = mesh(new THREE.SphereGeometry(0.0075, 10, 8), ink, false)
+    btn.position.set(0, y, 0.109)
+    group.add(btn)
+  }
+
+  // 手臂：肘贴身、小臂搭桌。之前是两根外翻的胶囊，看着像在耸肩
+  for (const side of [-1, 1]) {
+    const shoulderPoint = new THREE.Vector3(side * 0.13, 1.0, 0.01)
+    const elbow = new THREE.Vector3(side * 0.146, 0.795, 0.055)
+    const wrist = new THREE.Vector3(side * 0.152, 0.748, 0.285)
+    group.add(limb(shoulderPoint, elbow, 0.042, suit))
+    group.add(limb(elbow, wrist, 0.036, suit))
+
+    // 手：平贴桌面的手掌。之前四根手指正对镜头，像蟹钳
+    const hand = mesh(new THREE.SphereGeometry(0.042, 14, 12), skin)
+    hand.position.set(side * 0.152, 0.745, 0.325)
+    hand.scale.set(0.72, 0.34, 1.12)
+    hand.rotation.y = -side * 0.3
+    group.add(hand)
+  }
+
+  // 脖子 + 头（头单独挂 Group，方便点头和转头）
+  group.add(limb(new THREE.Vector3(0, 0.975, 0.004), new THREE.Vector3(0, 1.085, 0.008), 0.04, skin))
+
+  const head = new THREE.Group()
+  head.position.set(0, 1.09, 0)
+  group.add(head)
+
+  const skull = mesh(new THREE.SphereGeometry(0.093, 28, 22), skin)
+  skull.position.set(0, 0.115, 0)
+  skull.scale.set(1, 1.13, 1.02)
+  head.add(skull)
+
+  const jaw = mesh(new THREE.SphereGeometry(0.06, 20, 16), skin)
+  jaw.position.set(0, 0.05, 0.024)
+  jaw.scale.set(1, 0.92, 0.96)
+  head.add(jaw)
+
+  for (const side of [-1, 1]) {
+    const ear = mesh(new THREE.SphereGeometry(0.02, 12, 10), skin, false)
+    ear.position.set(side * 0.092, 0.108, 0.004)
+    ear.scale.set(0.5, 1, 0.85)
+    head.add(ear)
+  }
+
+  // 眼睛：白眼球 + 虹膜 + 瞳孔 + 高光。之前只有一颗黑球，远看像两个洞
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Group()
+    eye.position.set(side * 0.036, 0.123, 0.077)
+
+    const white = mesh(new THREE.SphereGeometry(0.0225, 16, 12), shirt, false)
+    white.scale.set(1, 1, 0.62)
+    eye.add(white)
+
+    const iris = mesh(new THREE.SphereGeometry(0.0125, 14, 12), irisMat, false)
+    iris.position.z = 0.0145
+    iris.scale.set(1, 1, 0.72)
+    eye.add(iris)
+
+    const pupil = mesh(new THREE.SphereGeometry(0.0062, 10, 8), ink, false)
+    pupil.position.z = 0.0225
+    pupil.scale.set(1, 1, 0.72)
+    eye.add(pupil)
+
+    const glint = mesh(new THREE.SphereGeometry(0.0028, 8, 6), shirt, false)
+    glint.position.set(-0.005, 0.007, 0.0258)
+    eye.add(glint)
+
     head.add(eye)
-    const brow = mesh(new THREE.BoxGeometry(0.042, 0.008, 0.012), browMat, false)
-    brow.position.set(side * 0.043, 0.1, 0.1)
-    brow.rotation.z = side * 0.06
+
+    // 眉毛挪到眼睛正上方。之前悬在额头中间，配上盖住眼的头发就更怪了
+    const brow = mesh(new THREE.BoxGeometry(0.04, 0.009, 0.01), hair, false)
+    brow.position.set(side * 0.037, 0.15, 0.081)
+    brow.rotation.z = -side * 0.13
     head.add(brow)
   }
-  const nose = mesh(new THREE.ConeGeometry(0.017, 0.042, 8), skin, false)
-  nose.position.set(0, 0.05, 0.104)
-  nose.rotation.x = Math.PI * 0.52
+
+  const nose = mesh(new THREE.SphereGeometry(0.016, 14, 12), skin, false)
+  nose.position.set(0, 0.096, 0.087)
+  nose.scale.set(0.82, 1.5, 1.15)
   head.add(nose)
-  const mouth = mesh(new THREE.BoxGeometry(0.036, 0.008, 0.01), mat({ color: 0x8a5a52, roughness: 0.8 }), false)
-  mouth.position.set(0, 0.02, 0.1)
+
+  const mouth = mesh(new THREE.SphereGeometry(0.023, 16, 12), lipMat, false)
+  mouth.position.set(0, 0.048, 0.081)
+  mouth.scale.set(1.05, 0.3, 0.42)
   head.add(mouth)
-  group.add(head)
+
+  // 发型：拆成"头顶盖 + 后脑勺"，正脸留出来。
+  // 之前是一整片球冠一直盖到眼睛下面，看起来像戴了个黑面罩——这是最显丑的一处
+  const crown = mesh(
+    new THREE.SphereGeometry(0.099, 26, 14, 0, Math.PI * 2, 0, Math.PI * 0.34),
+    hair,
+  )
+  crown.position.set(0, 0.114, -0.003)
+  crown.scale.set(1.03, 1.13, 1.05)
+  head.add(crown)
+
+  const backHair = mesh(
+    new THREE.SphereGeometry(0.099, 22, 16, Math.PI / 2 + 0.95, Math.PI * 2 - 1.9, 0, Math.PI * 0.6),
+    hair,
+  )
+  backHair.position.set(0, 0.114, -0.003)
+  backHair.scale.set(1.03, 1.13, 1.05)
+  head.add(backHair)
+
+  if (seat.hairStyle === 'medium') {
+    // 两侧垂发：框住脸但不遮脸
+    for (const side of [-1, 1]) {
+      const lock = mesh(new THREE.CapsuleGeometry(0.026, 0.095, 4, 10), hair)
+      lock.position.set(side * 0.086, 0.05, 0.012)
+      lock.scale.set(1, 1, 0.78)
+      head.add(lock)
+    }
+    const part = mesh(new THREE.BoxGeometry(0.058, 0.014, 0.045), hair, false)
+    part.position.set(-0.028, 0.198, 0.05)
+    part.rotation.z = 0.2
+    head.add(part)
+  } else {
+    for (const side of [-1, 1]) {
+      const sideburn = mesh(new THREE.BoxGeometry(0.013, 0.036, 0.034), hair, false)
+      sideburn.position.set(side * 0.088, 0.1, 0.024)
+      head.add(sideburn)
+    }
+  }
+
+  // 眼镜：只有组长戴
+  if (seat.glasses) {
+    const frameMat = mat({ color: 0x2a2a2e, roughness: 0.35, metalness: 0.6 })
+    for (const side of [-1, 1]) {
+      const ring = mesh(new THREE.TorusGeometry(0.027, 0.0028, 8, 24), frameMat, false)
+      ring.position.set(side * 0.036, 0.123, 0.096)
+      head.add(ring)
+
+      const temple = mesh(new THREE.BoxGeometry(0.003, 0.0035, 0.075), frameMat, false)
+      temple.position.set(side * 0.078, 0.127, 0.056)
+      head.add(temple)
+    }
+    const bridge = mesh(new THREE.BoxGeometry(0.022, 0.0032, 0.0035), frameMat, false)
+    bridge.position.set(0, 0.125, 0.098)
+    head.add(bridge)
+  }
 
   scene?.add(group)
 
@@ -370,7 +665,8 @@ function buildExaminer(seat: (typeof EXAMINER_SEATS)[number], index: number): Ex
     head,
     shoulderL,
     shoulderR,
-    anchor: new THREE.Vector3(seat.x, 1.78 * seat.scale, EXAMINER_Z),
+    shoulderY,
+    anchor: new THREE.Vector3(seat.x, 1.46 * seat.scale, EXAMINER_Z),
     phase: index * 1.7,
   }
 }
@@ -378,8 +674,14 @@ function buildExaminer(seat: (typeof EXAMINER_SEATS)[number], index: number): Ex
 /** 长桌 + 桌上的桌牌、纸、水杯。 */
 function buildDesk(): void {
   if (!scene) return
-  const wood = mat({ color: 0x8b5f3c, roughness: 0.62 })
-  const woodDark = mat({ color: 0x6d472c, roughness: 0.7 })
+  // 长桌木纹横向重复四次，否则整张桌子像一块被拉伸的巨型木板
+  const tableWood = woodTexture().clone()
+  tableWood.wrapS = THREE.RepeatWrapping
+  tableWood.wrapT = THREE.RepeatWrapping
+  tableWood.repeat.set(4, 1)
+  tableWood.needsUpdate = true
+  const wood = mat({ map: tableWood, roughness: 0.42, metalness: 0.03 })
+  const woodDark = mat({ color: 0x5a3a22, roughness: 0.55, metalness: 0.04 })
   const top = mesh(new THREE.BoxGeometry(5.2, 0.07, 0.92), wood)
   top.position.set(0, 0.78, DESK_Z)
   scene.add(top)
@@ -433,7 +735,7 @@ function buildDesk(): void {
 /** 考生这一侧：一张椅子 + 桌面边缘，给第一人称一点参照物。 */
 function buildExamineeSide(): void {
   if (!scene) return
-  const wood = mat({ color: 0x8b5f3c, roughness: 0.62 })
+  const wood = mat({ map: woodTexture(), roughness: 0.42, metalness: 0.03 })
   const desk = mesh(new THREE.BoxGeometry(1.45, 0.06, 0.58), wood)
   desk.position.set(0, 0.74, -0.55)
   scene.add(desk)
@@ -461,7 +763,12 @@ function buildRoom(): void {
   const halfW = ROOM_W / 2
   const halfD = ROOM_D / 2
 
-  const floor = mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_D), mat({ map: floorTexture(), roughness: 0.82 }), false)
+  // 大理石：比白墙稍深一档 + 低粗糙度，靠反光和纹理跟墙分开
+  const floor = mesh(
+    new THREE.PlaneGeometry(ROOM_W, ROOM_D),
+    mat({ map: floorTexture(), color: 0xe4e0da, roughness: 0.18, metalness: 0.03 }),
+    false,
+  )
   floor.rotation.x = -Math.PI / 2
   scene.add(floor)
 
@@ -470,7 +777,7 @@ function buildRoom(): void {
   ceiling.position.y = ROOM_H
   scene.add(ceiling)
 
-  const wallMat = mat({ color: 0xe6e0d4, roughness: 0.95 })
+  const wallMat = mat({ map: wallTexture(), roughness: 0.9 })
   const back = mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_H), wallMat, false)
   back.position.set(0, ROOM_H / 2, -halfD)
   scene.add(back)
@@ -502,7 +809,8 @@ function buildRoom(): void {
   }
 
   // 黑板（不与天花板打架：0.95 → 2.95）
-  const frameMat = mat({ color: 0x6d472c, roughness: 0.75 })
+  // 黑板框：铜金色，比原来的木头框更像真教室
+  const frameMat = mat({ color: 0xb28e50, roughness: 0.34, metalness: 0.62 })
   const frameMesh = mesh(new THREE.BoxGeometry(4.9, 2.0, 0.09), frameMat, false)
   frameMesh.position.set(0, 1.95, -halfD + 0.06)
   scene.add(frameMesh)
@@ -639,7 +947,7 @@ function animate(): void {
     const active = rig.id === speaking
     const breath = 1 + 0.009 * Math.sin(t * 1.45 + rig.phase)
     rig.torso.scale.y = breath
-    rig.shoulderL.position.y = 1.18 + 0.004 * Math.sin(t * 1.45 + rig.phase)
+    rig.shoulderL.position.y = rig.shoulderY + 0.004 * Math.sin(t * 1.45 + rig.phase)
     rig.shoulderR.position.y = rig.shoulderL.position.y
 
     if (active) {
