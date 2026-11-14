@@ -1,8 +1,8 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  PhBookOpenText, PhCalendarDots, PhFileText, PhHeart, PhHouse,
+  PhBookOpenText, PhBooks, PhCalendarDots, PhFileText, PhHeart, PhHouse,
   PhList, PhRocketLaunch, PhTrophy, PhX,
 } from '@phosphor-icons/vue'
 
@@ -17,6 +17,7 @@ const links = [
   { path: '/innovation', icon: PhRocketLaunch, label: '双创孵化', hint: 'Build & compete' },
   { path: '/documents', icon: PhFileText, label: '文档工坊', hint: 'Format lab' },
   { path: '/points', icon: PhTrophy, label: '积分中心', hint: 'Points & Badges' },
+  { path: '/evidence', icon: PhBooks, label: '规则依据', hint: 'Why it counts' },
 ]
 
 function active(path: string) {

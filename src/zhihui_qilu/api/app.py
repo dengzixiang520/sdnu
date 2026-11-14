@@ -13,6 +13,7 @@ from zhihui_qilu.api.routes.timetable import router as timetable_router
 from zhihui_qilu.api.routes.points import router as points_router
 from zhihui_qilu.api.routes.exchange import router as exchange_router
 from zhihui_qilu.api.routes.documents import router as documents_router
+from zhihui_qilu.api.routes.evidence import router as evidence_router
 from zhihui_qilu.api.routes.feedback import router as feedback_router
 from zhihui_qilu.api.routes.integration import router as integration_router
 from zhihui_qilu.api.routes.interview import router as interview_router
@@ -30,6 +31,7 @@ def create_app(settings: Settings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.container = container
+        await container.seed_demo_content()
         try:
             yield
         finally:
@@ -57,6 +59,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(points_router)
     app.include_router(exchange_router)
     app.include_router(documents_router)
+    app.include_router(evidence_router)
     app.include_router(feedback_router)
     app.include_router(interview_router)
     app.include_router(study_plan_router)

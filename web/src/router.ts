@@ -14,6 +14,7 @@ export const router = createRouter({
     { path: '/innovation', component: () => import('./components/InnovationLab.vue'), meta: { section: '创新实践', title: '竞赛孵化' } },
     { path: '/documents', component: () => import('./components/DocumentWorkshop.vue'), meta: { section: '效率工具', title: '文档工坊' } },
     { path: '/points', component: () => import('./components/PointsCenter.vue'), meta: { section: '成长激励', title: '积分中心' } },
+    { path: '/evidence', component: () => import('./components/EvidencePage.vue'), meta: { section: '依据', title: '每条规则的出处' } },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

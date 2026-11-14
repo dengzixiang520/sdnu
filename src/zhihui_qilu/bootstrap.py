@@ -18,7 +18,20 @@ from zhihui_qilu.feedback_service import FeedbackService
 from zhihui_qilu.points_service import PointsService
 from zhihui_qilu.speech_service import BreezeSpeechService, MimoAsrService
 from zhihui_qilu.system_integration import SystemIntegrationService
+from zhihui_qilu.wellbeing_models import HappyShareDraft, WallMessage
 from zhihui_qilu.wellbeing_service import WellbeingService
+
+# 演示环境的预置内容：只补「内容型」模块的空状态。
+# 空着的寄语墙和分享墙在展台上会显得没人用，所以启动时补两条；
+# 但只在列表为空时写，绝不覆盖真实内容，也绝不碰打卡、预警、预约这些个人数据。
+_DEMO_WALL: tuple[tuple[str, str], ...] = (
+    ("期末周", "期末周别熬太晚。图书馆三楼靠窗那排，下午两点到四点有太阳，坐着不冷。"),
+    ("复习", "复习卡住的时候先合上书，把会的讲一遍给自己听。讲不下去的那段，才是要重看的地方。"),
+)
+_DEMO_SHARES: tuple[tuple[str, str], ...] = (
+    ("同学", "今天食堂的糖醋里脊居然是热的，运气不错。"),
+    ("同学", "跑了三公里，回来路上看见操场边开了第一朵迎春。"),
+)
 
 
 class PlatformContainer:
@@ -50,3 +63,27 @@ class PlatformContainer:
         self.feedback = FeedbackService(self.memory)
         self.system_integration = SystemIntegrationService()
         self.router = SuperAgentRouter(self.security_gateway, [WellbeingSkill(self.wellbeing), DormitorySkill(), AcademicSkill(self.academic), self.innovation, DocumentEngineSkill(provider=self.ai_provider)])
+
+    async def seed_demo_content(self) -> None:
+        """启动时补齐内容型模块的空状态。
+
+        线下展示时评委可能自己点开寄语墙和分享墙，两片空白会显得平台没人用。
+        这里只在列表为空时补两条，不覆盖已有内容，也不碰任何个人数据。
+        播种失败不阻断启动——宁可空着，也不能因为补内容起不来。
+        """
+        if self.settings.environment == "production":
+            return
+        try:
+            if not await self.wellbeing.list_wall_messages():
+                for topic, content in _DEMO_WALL:
+                    await self.wellbeing.publish_wall_message(WallMessage(content=content, topic=topic))
+            if not await self.wellbeing.list_happy_shares(limit=1):
+                for index, (author, content) in enumerate(_DEMO_SHARES):
+                    await self.wellbeing.publish_happy_share(
+                        user_id=f"demo-seed-{index}",
+                        session_id="demo-seed",
+                        author_name=author,
+                        draft=HappyShareDraft(content=content),
+                    )
+        except Exception:  # noqa: BLE001 - 播种是锦上添花，失败不能挡住启动
+            pass

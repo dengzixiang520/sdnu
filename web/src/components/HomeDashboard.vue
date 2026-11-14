@@ -591,7 +591,19 @@ onBeforeUnmount(() => {
       <div class="greeting-main">
         <p class="section-kicker">{{ formatDate(now).year }} / SDNU</p>
         <h1>{{ getGreeting(now) }}，<br />今天要处理什么？</h1>
-        <p class="greeting-desc">选择一个具体任务，系统会调用对应 Skill。没有虚构数据，也不会自动执行高风险操作。</p>
+        <p class="greeting-desc">
+          一个技能底座装五件事：暖心陪伴、宿舍协同、学习成长、双创孵化、文档规范。
+          没有虚构数据，也不会自动执行高风险操作。
+        </p>
+        <!-- 线下展示时评委可能自己点：五个模块给成可直接落地的入口，不用先猜侧栏。 -->
+        <nav class="dash-module-links" aria-label="平台五个模块">
+          <RouterLink to="/wellbeing">暖心陪伴</RouterLink>
+          <RouterLink to="/dormitory">宿舍协同</RouterLink>
+          <RouterLink to="/academic">学习成长</RouterLink>
+          <RouterLink to="/innovation">双创孵化</RouterLink>
+          <RouterLink to="/documents">文档规范</RouterLink>
+          <RouterLink to="/evidence" class="is-strong">每条规则的依据</RouterLink>
+        </nav>
       </div>
 
       <!-- 次要位置：时间日期 -->
@@ -1098,6 +1110,41 @@ onBeforeUnmount(() => {
 .dash-growth-note.is-red .dash-growth-tag {
   background: rgba(184, 74, 48, .14);
   color: #8c1d17;
+}
+
+/* ==================== 模块入口 ==================== */
+.dash-module-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.dash-module-links a {
+  padding: 5px 11px;
+  border: 1px solid #d8ded4;
+  border-radius: 999px;
+  background: #fffef8;
+  color: #172b2a;
+  font-size: .78rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color .16s ease, background .16s ease;
+}
+
+.dash-module-links a:hover {
+  border-color: #397f72;
+  background: #dfece5;
+}
+
+.dash-module-links a.is-strong {
+  border-color: #173f43;
+  background: #173f43;
+  color: #fffef8;
+}
+
+.dash-module-links a.is-strong:hover {
+  background: #397f72;
 }
 
 /* ==================== 学生评价条 ==================== */

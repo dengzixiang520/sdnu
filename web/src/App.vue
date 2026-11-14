@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 import AppSidebar from './components/AppSidebar.vue'
+import DemoTour from './components/DemoTour.vue'
 import GuidePet from './components/GuidePet.vue'
 import { useIdentity, type WebRole } from './identity'
 
@@ -57,6 +58,7 @@ onMounted(checkBackend)
             </select>
           </label>
           <div class="user-chip"><span>{{ identity.displayName.slice(0, 1) }}</span><div><strong>{{ identity.displayName }}</strong><small>{{ identity.userId }}</small></div></div>
+          <DemoTour />
         </div>
       </header>
 

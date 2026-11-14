@@ -213,3 +213,33 @@ export async function feedbackSummary(): Promise<FeedbackSummary> {
   )
   return response.data
 }
+
+/** 规则依据：线下展示时评委最常追问的一页。 */
+export interface EvidenceItem {
+  rule: string
+  how: string
+  source: string
+  url: string
+}
+
+export interface EvidenceGroup {
+  id: string
+  title: string
+  summary: string
+  items: EvidenceItem[]
+}
+
+export interface EvidencePayload {
+  groups: EvidenceGroup[]
+  total: number
+  note: string
+}
+
+export async function loadEvidence(): Promise<EvidencePayload> {
+  const response = await requestJson<{ success: boolean; data: EvidencePayload }>(
+    '/api/v1/evidence',
+    {},
+    '暂时读不到依据清单',
+  )
+  return response.data
+}
