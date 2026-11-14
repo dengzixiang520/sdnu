@@ -16,12 +16,25 @@ def build(environment: str = "test") -> PlatformContainer:
 
 
 def test_seed_fills_empty_lists() -> None:
-    """空库启动后寄语和分享各有内容，不再是一片空白。"""
+    """空库启动后寄语、分享、评价都有内容，不再是一片空白。"""
     container = build()
     asyncio.run(container.seed_demo_content())
 
     assert len(asyncio.run(container.wellbeing.list_wall_messages())) == 2
     assert len(asyncio.run(container.wellbeing.list_happy_shares())) == 2
+    summary = asyncio.run(container.feedback.summary())
+    assert summary["total"] == 8
+    assert summary["rate"] == 75
+
+
+def test_seed_feedback_has_both_verdicts() -> None:
+    """评价种子必须有好有差，全是好评反而不可信。"""
+    container = build()
+    asyncio.run(container.seed_demo_content())
+
+    summary = asyncio.run(container.feedback.summary())
+    assert 0 < summary["helpful"] < summary["total"]
+    assert summary["recent_notes"], "差评要带一句具体的话，不能只有分数"
 
 
 def test_seed_never_overwrites_existing_content() -> None:
@@ -43,6 +56,7 @@ def test_seed_is_skipped_in_production() -> None:
 
     assert asyncio.run(container.wellbeing.list_wall_messages()) == []
     assert asyncio.run(container.wellbeing.list_happy_shares()) == []
+    assert asyncio.run(container.feedback.summary())["total"] == 0
 
 
 def test_seed_twice_is_idempotent() -> None:
@@ -53,3 +67,4 @@ def test_seed_twice_is_idempotent() -> None:
 
     assert len(asyncio.run(container.wellbeing.list_wall_messages())) == 2
     assert len(asyncio.run(container.wellbeing.list_happy_shares())) == 2
+    assert asyncio.run(container.feedback.summary())["total"] == 8

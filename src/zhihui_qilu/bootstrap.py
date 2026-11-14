@@ -33,6 +33,19 @@ _DEMO_SHARES: tuple[tuple[str, str], ...] = (
     ("同学", "跑了三公里，回来路上看见操场边开了第一朵迎春。"),
 )
 
+# 种子评价：赛题把「用户评分」列进评审维度，空着的评价条说明不了任何事。
+# 刻意做成 6 好 2 差——全是好评反而不可信，留两条具体的差评更像真话。
+_DEMO_FEEDBACK: tuple[tuple[str, bool, str], ...] = (
+    ("doc_normalize", True, ""),
+    ("doc_normalize", True, ""),
+    ("doc_normalize", False, "表格里的字号没跟着改"),
+    ("interview_report", True, ""),
+    ("interview_report", False, "英语题太少，英语水平那项基本没测到"),
+    ("credit_warning", True, ""),
+    ("proposal_outline", True, ""),
+    ("wellbeing_chat", True, ""),
+)
+
 
 class PlatformContainer:
     """Owns Task 1 infrastructure and exposes future dependency-injection seams."""
@@ -84,6 +97,16 @@ class PlatformContainer:
                         session_id="demo-seed",
                         author_name=author,
                         draft=HappyShareDraft(content=content),
+                    )
+            # 评价条空着等于「用户评分」那一维没有数据，所以也补一组种子。
+            if (await self.feedback.summary())["total"] == 0:
+                for index, (target, helpful, note) in enumerate(_DEMO_FEEDBACK):
+                    await self.feedback.record(
+                        user_id=f"demo-seed-{index}",
+                        session_id="demo-seed",
+                        target=target,
+                        helpful=helpful,
+                        note=note,
                     )
         except Exception:  # noqa: BLE001 - 播种是锦上添花，失败不能挡住启动
             pass
