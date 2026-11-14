@@ -592,18 +592,16 @@ onBeforeUnmount(() => {
         <p class="section-kicker">{{ formatDate(now).year }} / SDNU</p>
         <h1>{{ getGreeting(now) }}，<br />今天要处理什么？</h1>
         <p class="greeting-desc">
-          一个技能底座装七件事：暖心陪伴、宿舍协同、学习成长、双创孵化、文档规范、钓鱼识别、学术海报。
+          一个技能底座装五件事：暖心陪伴、宿舍协同、学习成长、双创孵化、文档规范。
           没有虚构数据，也不会自动执行高风险操作。
         </p>
-        <!-- 线下展示时评委可能自己点：七个模块给成可直接落地的入口，不用先猜侧栏。 -->
-        <nav class="dash-module-links" aria-label="平台七个模块">
+        <!-- 线下展示时评委可能自己点：五个模块给成可直接落地的入口，不用先猜侧栏。 -->
+        <nav class="dash-module-links" aria-label="平台五个模块">
           <RouterLink to="/wellbeing">暖心陪伴</RouterLink>
           <RouterLink to="/dormitory">宿舍协同</RouterLink>
           <RouterLink to="/academic">学习成长</RouterLink>
           <RouterLink to="/innovation">双创孵化</RouterLink>
           <RouterLink to="/documents">文档规范</RouterLink>
-          <RouterLink to="/phishing">钓鱼识别</RouterLink>
-          <RouterLink to="/poster">学术海报</RouterLink>
           <RouterLink to="/evidence" class="is-strong">每条规则的依据</RouterLink>
         </nav>
       </div>

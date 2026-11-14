@@ -13,8 +13,6 @@ export const router = createRouter({
     { path: '/academic/credit', component: () => import('./components/AcademicCredit.vue'), meta: { section: '学习成长', title: '学业预警自检' } },
     { path: '/innovation', component: () => import('./components/InnovationLab.vue'), meta: { section: '创新实践', title: '竞赛孵化' } },
     { path: '/documents', component: () => import('./components/DocumentWorkshop.vue'), meta: { section: '效率工具', title: '文档工坊' } },
-    { path: '/phishing', component: () => import('./components/PhishingGuard.vue'), meta: { section: '安全防护', title: '钓鱼识别' } },
-    { path: '/poster', component: () => import('./components/PosterStudio.vue'), meta: { section: '效率工具', title: '学术海报' } },
     { path: '/points', component: () => import('./components/PointsCenter.vue'), meta: { section: '成长激励', title: '积分中心' } },
     { path: '/evidence', component: () => import('./components/EvidencePage.vue'), meta: { section: '依据', title: '每条规则的出处' } },
     { path: '/:pathMatch(.*)*', redirect: '/' },

@@ -37,8 +37,6 @@ TARGETS: dict[str, str] = {
     "proposal_outline": "竞赛申报大纲",
     "self_check": "四题自评",
     "timetable": "课表解析",
-    "phishing_check": "钓鱼识别",
-    "poster_plan": "学术海报",
 }
 
 
