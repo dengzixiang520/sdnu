@@ -3,8 +3,11 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import {
   PhFileText, PhDownload, PhEye, PhCopy, PhTrash, PhSparkle, PhMagicWand,
   PhBookmarkSimple, PhClock, PhQuotes, PhListChecks, PhArrowRight, PhPlus,
+  PhUploadSimple, PhSealCheck, PhWarningCircle, PhFileDoc, PhCheckCircle, PhCircle,
 } from '@phosphor-icons/vue'
-import { command, requestJson } from '../api'
+import { command, requestJson, uploadDocumentForNormalize } from '../api'
+import type { NormalizeResult } from '../api'
+import AnswerFeedback from './AnswerFeedback.vue'
 
 interface DocumentElements {
   reference_number: string
@@ -74,7 +77,7 @@ const BRIEF_EXAMPLES = [
   '2026届毕业生就业工作情况，需向省教育厅汇报',
 ]
 
-const activeTab = ref<'templates' | 'assist' | 'editor' | 'preview' | 'format' | 'library'>('templates')
+const activeTab = ref<'templates' | 'normalize' | 'assist' | 'editor' | 'preview' | 'format' | 'library'>('templates')
 const draft = ref('')
 const elements = ref<DocumentElements | null>(null)
 const message = ref('')
@@ -756,6 +759,72 @@ function checkFormat() {
     : `格式检查：${checks.length - failed} 项通过，${failed} 项待改${hard ? `（其中 ${hard} 项是细则硬性要求）` : ''}`
 }
 
+/* ---------- 上传规范化（命题三：上传已有公文 → 一键改版式） ---------- */
+/* 这条路和「起草」是两件事：起草负责写，规范化负责改。所以它单独一个 tab，
+   不混进编辑器里，避免用户以为要先粘一遍正文。 */
+const normalizeFile = ref<File | null>(null)
+const normalizeInput = ref<HTMLInputElement | null>(null)
+const normalizeBusy = ref(false)
+const normalizeNotice = ref('')
+const normalizeResult = ref<NormalizeResult | null>(null)
+const normalizeDragging = ref(false)
+const NORMALIZE_MAX_BYTES = 20 * 1024 * 1024
+
+function setNormalizeFile(file: File | null) {
+  normalizeResult.value = null
+  normalizeNotice.value = ''
+  if (!file) {
+    normalizeFile.value = null
+    return
+  }
+  const lower = file.name.toLowerCase()
+  if (!lower.endsWith('.docx') && !lower.endsWith('.doc')) {
+    normalizeFile.value = null
+    normalizeNotice.value = '只接 .docx 和 .doc。如果手上是 PDF，先用 Word 另存为 .docx。'
+    return
+  }
+  if (file.size > NORMALIZE_MAX_BYTES) {
+    normalizeFile.value = null
+    normalizeNotice.value = `这个文件 ${(file.size / 1024 / 1024).toFixed(1)}MB，超过 20MB 上限。`
+    return
+  }
+  normalizeFile.value = file
+}
+
+function pickNormalizeFile() {
+  normalizeInput.value?.click()
+}
+
+function onNormalizeFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  setNormalizeFile(input.files?.[0] ?? null)
+  input.value = ''
+}
+
+function onNormalizeDrop(event: DragEvent) {
+  normalizeDragging.value = false
+  setNormalizeFile(event.dataTransfer?.files?.[0] ?? null)
+}
+
+async function runNormalize() {
+  if (!normalizeFile.value || normalizeBusy.value) return
+  normalizeBusy.value = true
+  normalizeNotice.value = ''
+  try {
+    const response = await uploadDocumentForNormalize(normalizeFile.value, docType.value)
+    normalizeResult.value = response.data
+    normalizeNotice.value = response.message
+  } catch (error) {
+    normalizeNotice.value = error instanceof Error ? error.message : '这份文档没能改成功'
+  } finally {
+    normalizeBusy.value = false
+  }
+}
+
+const normalizeDownloadUrl = computed(
+  () => (normalizeResult.value ? `/api/v1/documents/normalize/${normalizeResult.value.token}` : ''),
+)
+
 /* ---------- A4 预览 ---------- */
 const a4Zoom = ref(false)
 /* 容器查询必须挂在外层 .dw-a4-sheet 上：元素不能查询自己的 padding，
@@ -838,6 +907,9 @@ onMounted(() => {
       <button :class="{ active: activeTab === 'templates' }" @click="activeTab = 'templates'">
         <PhCopy :size="16" /> 文种模板（{{ templates.length }}）
       </button>
+      <button :class="{ active: activeTab === 'normalize' }" @click="activeTab = 'normalize'">
+        <PhUploadSimple :size="16" /> 上传改格式
+      </button>
       <button :class="{ active: activeTab === 'assist' }" @click="activeTab = 'assist'">
         <PhSparkle :size="16" /> 起草助手
       </button>
@@ -903,6 +975,117 @@ onMounted(() => {
           <button class="use-btn">使用模板</button>
         </footer>
       </article>
+    </div>
+
+    <!-- 上传改格式：已经写好的一份，直接按国标重排，不改一个字 -->
+    <div v-if="activeTab === 'normalize'" class="dw-normalize">
+      <section class="dw-norm-intro">
+        <p class="eyebrow">已经写好的一份，直接改格式</p>
+        <h2>上传公文，<em>按国标重排。</em></h2>
+        <p class="dw-norm-lead">
+          不改一个字，只把字体字号、段落行距、页边距、标题层级、序号编号、页眉页脚、落款日期改到合规。
+          每一处改动都会列出来，写清依据哪一条。
+        </p>
+      </section>
+
+      <div
+        class="dw-norm-drop"
+        :class="{ 'is-over': normalizeDragging, 'has-file': normalizeFile }"
+        role="button"
+        tabindex="0"
+        @click="pickNormalizeFile"
+        @keydown.enter.prevent="pickNormalizeFile"
+        @keydown.space.prevent="pickNormalizeFile"
+        @dragover.prevent="normalizeDragging = true"
+        @dragleave.prevent="normalizeDragging = false"
+        @drop.prevent="onNormalizeDrop"
+      >
+        <input ref="normalizeInput" type="file" accept=".docx,.doc" class="dw-norm-input" @change="onNormalizeFileChange">
+        <PhFileDoc :size="30" weight="duotone" />
+        <strong v-if="!normalizeFile">拖一份 .docx 进来，或点这里选文件</strong>
+        <strong v-else>{{ normalizeFile.name }}</strong>
+        <span v-if="normalizeFile">{{ (normalizeFile.size / 1024).toFixed(0) }} KB · 点一下换一份</span>
+        <span v-else>支持 .docx / .doc，最大 20MB</span>
+      </div>
+
+      <div class="dw-norm-actions">
+        <label class="dw-norm-type">
+          <span>按哪种文种核对</span>
+          <select v-model="docType">
+            <option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option>
+          </select>
+        </label>
+        <button class="ink-button primary" :disabled="!normalizeFile || normalizeBusy" @click="runNormalize">
+          <PhSealCheck :size="16" /> {{ normalizeBusy ? '正在重排…' : '开始规范化' }}
+        </button>
+      </div>
+
+      <p v-if="normalizeNotice" class="dw-norm-notice">{{ normalizeNotice }}</p>
+
+      <template v-if="normalizeResult">
+        <section class="dw-norm-summary">
+          <header>
+            <div>
+              <p class="micro">
+                {{ normalizeResult.doc_type_name }} · {{ normalizeResult.paragraphs }} 段 ·
+                {{ normalizeResult.text_chars }} 字
+              </p>
+              <h3>改了 {{ normalizeResult.total_changes }} 处</h3>
+            </div>
+            <a class="ink-button primary" :href="normalizeDownloadUrl" :download="normalizeResult.filename">
+              <PhDownload :size="16" /> 下载规范化后的文件
+            </a>
+          </header>
+          <ul class="dw-norm-cats">
+            <li v-for="(count, name) in normalizeResult.by_category" :key="name">
+              <span>{{ name }}</span><strong>{{ count }}</strong>
+            </li>
+          </ul>
+          <p class="dw-norm-standard">
+            依据 {{ normalizeResult.standard }}；{{ normalizeResult.rule }}。文件保留 {{ Math.round(normalizeResult.expires_in / 60) }} 分钟。
+          </p>
+          <AnswerFeedback target="doc_normalize" hint="这次改得对吗" />
+        </section>
+
+        <section class="dw-norm-checks">
+          <h3>按「{{ normalizeResult.doc_type_name }}」的要素自检</h3>
+          <ul>
+            <li v-for="item in normalizeResult.checklist" :key="item.item" :class="{ ok: item.present }">
+              <PhCheckCircle v-if="item.present" :size="16" />
+              <PhCircle v-else :size="16" />
+              <span>{{ item.item }}</span>
+              <em v-if="!item.present && item.note">{{ item.note }}</em>
+            </li>
+          </ul>
+        </section>
+
+        <section class="dw-norm-changes">
+          <h3>逐条改动</h3>
+          <div class="dw-norm-table">
+            <div class="dw-norm-row dw-norm-row-head">
+              <span>位置</span><span>类别</span><span>原来</span><span>改成</span><span>依据</span>
+            </div>
+            <div
+              v-for="(change, position) in normalizeResult.changes"
+              :key="`${change.index}-${change.category}-${position}`"
+              class="dw-norm-row"
+            >
+              <span>{{ change.target }}</span>
+              <span class="dw-norm-tag">{{ change.category }}</span>
+              <span class="dw-norm-before">{{ change.before }}</span>
+              <span class="dw-norm-after">{{ change.after }}</span>
+              <span class="dw-norm-basis">{{ change.basis }}</span>
+            </div>
+          </div>
+        </section>
+
+        <section v-if="normalizeResult.warnings.length" class="dw-norm-warnings">
+          <h3><PhWarningCircle :size="16" /> 需要你再看一眼</h3>
+          <ul>
+            <li v-for="(warning, position) in normalizeResult.warnings" :key="position">{{ warning }}</li>
+          </ul>
+        </section>
+      </template>
     </div>
 
     <!-- 起草助手：一句话成稿 + 文种选择 + 易混对照 + 句式库 -->
@@ -2119,5 +2302,288 @@ onMounted(() => {
 
 .dw-deadline strong {
   color: #6f4a0f;
+}
+
+/* ---------- 上传改格式 ---------- */
+.dw-normalize {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.dw-norm-intro h2 {
+  margin: 4px 0 8px;
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: #172b2a;
+}
+
+.dw-norm-intro h2 em {
+  font-style: normal;
+  color: #397f72;
+}
+
+.dw-norm-lead {
+  margin: 0;
+  max-width: 68ch;
+  color: #667572;
+  line-height: 1.75;
+}
+
+.dw-norm-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 30px 20px;
+  border: 1.5px dashed #d8ded4;
+  border-radius: 18px;
+  background: #fffef8;
+  color: #667572;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color .18s ease, background .18s ease;
+}
+
+.dw-norm-drop:hover,
+.dw-norm-drop:focus-visible {
+  border-color: #397f72;
+  background: #f5f4eb;
+  outline: none;
+}
+
+.dw-norm-drop.is-over {
+  border-color: #397f72;
+  background: #dfece5;
+}
+
+.dw-norm-drop.has-file {
+  border-style: solid;
+  border-color: #397f72;
+}
+
+.dw-norm-drop strong {
+  font-size: 1rem;
+  color: #172b2a;
+  word-break: break-all;
+}
+
+.dw-norm-drop span {
+  font-size: .82rem;
+}
+
+.dw-norm-input {
+  display: none;
+}
+
+.dw-norm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.dw-norm-type {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: .82rem;
+  color: #667572;
+}
+
+.dw-norm-type select {
+  min-width: 160px;
+  padding: 10px 12px;
+  border: 1px solid #d8ded4;
+  border-radius: 10px;
+  background: #fffef8;
+  color: #172b2a;
+  font: inherit;
+}
+
+.dw-norm-notice {
+  margin: 0;
+  padding: 10px 14px;
+  border-left: 3px solid #397f72;
+  border-radius: 0 10px 10px 0;
+  background: #f5f4eb;
+  color: #172b2a;
+  font-size: .88rem;
+  line-height: 1.6;
+}
+
+.dw-norm-summary,
+.dw-norm-checks,
+.dw-norm-changes,
+.dw-norm-warnings {
+  padding: 18px 20px;
+  border: 1px solid #d8ded4;
+  border-radius: 18px;
+  background: #fffef8;
+}
+
+.dw-norm-summary header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dw-norm-summary h3 {
+  margin: 2px 0 0;
+  font-size: 1.25rem;
+  color: #172b2a;
+}
+
+.dw-norm-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dw-norm-cats li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: #dfece5;
+  color: #173f43;
+  font-size: .8rem;
+}
+
+.dw-norm-cats strong {
+  font-size: .95rem;
+}
+
+.dw-norm-standard {
+  margin: 12px 0 0;
+  font-size: .78rem;
+  line-height: 1.6;
+  color: #667572;
+}
+
+.dw-norm-checks h3,
+.dw-norm-changes h3,
+.dw-norm-warnings h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  font-size: .95rem;
+  color: #172b2a;
+}
+
+.dw-norm-checks ul,
+.dw-norm-warnings ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dw-norm-checks li {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: .86rem;
+  line-height: 1.55;
+  color: #b63d3d;
+}
+
+.dw-norm-checks li.ok {
+  color: #397f72;
+}
+
+.dw-norm-checks li em {
+  font-style: normal;
+  font-size: .78rem;
+  color: #667572;
+}
+
+.dw-norm-warnings {
+  border-color: #e8cfc9;
+  background: #fdf6f4;
+}
+
+.dw-norm-warnings li {
+  font-size: .86rem;
+  line-height: 1.6;
+  color: #8a3d30;
+}
+
+.dw-norm-table {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-x: auto;
+}
+
+.dw-norm-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.1fr) 88px minmax(120px, 1fr) minmax(140px, 1.2fr) minmax(150px, 1.4fr);
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: .8rem;
+  line-height: 1.5;
+  color: #172b2a;
+}
+
+.dw-norm-row:nth-child(even) {
+  background: #f5f4eb;
+}
+
+.dw-norm-row-head {
+  background: transparent;
+  font-weight: 700;
+  font-size: .74rem;
+  letter-spacing: .04em;
+  color: #667572;
+}
+
+.dw-norm-tag {
+  justify-self: start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e7e9f4;
+  color: #3b4470;
+  font-size: .72rem;
+  white-space: nowrap;
+}
+
+.dw-norm-before {
+  color: #8a6a3d;
+  text-decoration: line-through;
+  text-decoration-color: #d6a849;
+}
+
+.dw-norm-after {
+  color: #1f5a4e;
+  font-weight: 600;
+}
+
+.dw-norm-basis {
+  color: #667572;
+  font-size: .74rem;
+}
+
+@media (max-width: 900px) {
+  .dw-norm-row {
+    grid-template-columns: 1fr;
+    gap: 3px;
+    padding: 10px;
+    border-bottom: 1px solid #e6e9e0;
+  }
+
+  .dw-norm-row-head {
+    display: none;
+  }
 }
 </style>

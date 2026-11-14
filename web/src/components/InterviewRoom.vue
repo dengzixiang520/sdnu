@@ -37,6 +37,7 @@ import {
   PhX,
 } from '@phosphor-icons/vue'
 import { requestJson } from '../api'
+import AnswerFeedback from './AnswerFeedback.vue'
 import ClassroomScene from './interview/ClassroomScene.vue'
 import { useSpeechLab, type AnswerMetricPayload } from './interview/useSpeechLab'
 
@@ -129,6 +130,9 @@ interface InterviewReport {
   answers: AnswerReview[]
   highlights: string[]
   fixes: string[]
+  /** 定向命题五点名的四维：表达能力 / 专业深度 / 英语水平 / 形象气质 */
+  proposition_dimensions?: Dimension[]
+  proposition_note?: string
 }
 
 /** 压进 localStorage 的历史场次，字段刻意收窄：只留对比用得上的数字。 */
@@ -1710,7 +1714,29 @@ onBeforeUnmount(() => {
             </ol>
           </section>
 
+          <!-- 命题五原文点名四个维度，这一层先给评委看；下面六项是「怎么改」 -->
+          <section v-if="report.proposition_dimensions?.length" class="iv-report-proposition">
+            <header class="iv-prop-head">
+              <h2>按定向命题的四个维度</h2>
+              <p v-if="report.proposition_note">{{ report.proposition_note }}</p>
+            </header>
+            <div class="iv-prop-grid">
+              <article v-for="dim in report.proposition_dimensions" :key="dim.key" class="iv-prop">
+                <header>
+                  <span>{{ dim.label }}</span>
+                  <strong :class="{ low: dim.score > 0 && dim.score < 70, absent: dim.score === 0 }">
+                    {{ dim.score > 0 ? dim.score : '未测' }}
+                  </strong>
+                </header>
+                <div class="iv-prop-bar"><i :style="{ width: `${dim.score}%` }" /></div>
+                <p class="iv-prop-evidence">{{ dim.evidence }}</p>
+                <p class="iv-prop-advice">{{ dim.advice }}</p>
+              </article>
+            </div>
+          </section>
+
           <section class="iv-report-grid">
+            <h2 class="iv-dim-heading">再往下拆成六项，用来定位具体改哪里</h2>
             <article v-for="dim in report.dimensions" :key="dim.key" class="iv-dim">
               <header>
                 <span>{{ dim.label }}</span>
@@ -1863,6 +1889,8 @@ onBeforeUnmount(() => {
               <ul><li v-for="line in report.fixes" :key="line">{{ line }}</li></ul>
             </div>
           </section>
+
+          <AnswerFeedback target="interview_report" hint="这份评分报告准吗" />
         </template>
         <p v-else-if="busy" class="iv-report-loading"><PhCircleNotch :size="18" class="spin" /> 正在换算语音指标…</p>
       </div>
@@ -2171,6 +2199,109 @@ onBeforeUnmount(() => {
 
 /* ---------------------------------------------------------------- 报告导出 */
 .ivx-export { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+/* ---------------------------------------------------------------- 命题四维 */
+/* 命题五原文点名「表达能力、专业深度、英语水平、形象气质」，这一层先给评委看；
+   六项细拆放在下面，用来告诉学生具体改哪里。深色底沿用复试报告的配色。 */
+.iv-report-proposition {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.1rem 1.15rem;
+  border: 1px solid rgba(207, 230, 160, .3);
+  border-radius: 16px;
+  background: rgba(207, 230, 160, .06);
+}
+
+.iv-prop-head h2 {
+  margin: 0 0 .3rem;
+  font-size: 1rem;
+  letter-spacing: .04em;
+  color: #f2f7f4;
+}
+
+.iv-prop-head p {
+  margin: 0 0 .9rem;
+  font-size: .78rem;
+  line-height: 1.6;
+  color: rgba(226, 236, 231, .62);
+}
+
+.iv-prop-grid {
+  display: grid;
+  gap: .7rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.iv-prop {
+  padding: .8rem .85rem .95rem;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, .05);
+}
+
+.iv-prop header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .5rem;
+  margin-bottom: .5rem;
+}
+
+.iv-prop header span {
+  font-size: .84rem;
+  font-weight: 600;
+  color: rgba(232, 240, 236, .9);
+}
+
+.iv-prop header strong {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #cfe6a0;
+  font-variant-numeric: tabular-nums;
+}
+
+.iv-prop header strong.low { color: #e8a08c; }
+
+.iv-prop header strong.absent {
+  font-size: .82rem;
+  font-weight: 600;
+  color: rgba(226, 236, 231, .45);
+}
+
+.iv-prop-bar {
+  height: 6px;
+  margin-bottom: .6rem;
+  background: rgba(255, 255, 255, .1);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.iv-prop-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #cfe6a0, #9dc47a);
+}
+
+.iv-prop-evidence {
+  margin: 0 0 .4rem;
+  font-size: .74rem;
+  line-height: 1.62;
+  color: rgba(226, 236, 231, .58);
+}
+
+.iv-prop-advice {
+  margin: 0;
+  font-size: .78rem;
+  line-height: 1.68;
+  color: rgba(238, 245, 241, .9);
+}
+
+.iv-dim-heading {
+  grid-column: 1 / -1;
+  margin: 0 0 .2rem;
+  font-size: .92rem;
+  letter-spacing: .04em;
+  color: rgba(238, 245, 241, .82);
+}
 
 /* ---------------------------------------------------------------- 窄屏收敛 */
 @media (max-width: 1180px) {

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import {
   PhArrowRight,
   PhCalendarDots,
+  PhChatsCircle,
   PhCheckCircle,
   PhCircle,
   PhClock,
@@ -12,7 +13,8 @@ import {
   PhListChecks,
   PhStar,
 } from '@phosphor-icons/vue'
-import { command, requestJson } from '../api'
+import { command, feedbackSummary, requestJson } from '../api'
+import type { FeedbackSummary } from '../api'
 import { useIdentity } from '../identity'
 
 const router = useRouter()
@@ -180,6 +182,18 @@ async function loadGrowthNote() {
     growthNote.value = (await command('wellbeing', 'growth_note')).data as unknown as GrowthNote
   } catch {
     growthNote.value = null
+  }
+}
+
+/* 学生评价：赛题把「用户评分」写进评审维度，所以把真实收到的条数摊在第一屏。
+   一条都没有时也照实说，不假装有数据。 */
+const feedbackStats = ref<FeedbackSummary | null>(null)
+
+async function loadFeedbackStats() {
+  try {
+    feedbackStats.value = await feedbackSummary()
+  } catch {
+    feedbackStats.value = null
   }
 }
 
@@ -556,12 +570,13 @@ onMounted(() => {
     if (isoDayKey(tick) !== isoDayKey(todayStamp.value)) todayStamp.value = tick
   }, 1000)
 
-  // 四个数据源各自独立失败，互不阻塞：任何一块挂掉都只影响它自己那张卡。
+  // 五个数据源各自独立失败，互不阻塞：任何一块挂掉都只影响它自己那张卡。
   loadPlan()
   void loadCourses()
   void loadPoints()
   void loadShares()
   void loadGrowthNote()
+  void loadFeedbackStats()
 })
 
 onBeforeUnmount(() => {
@@ -594,6 +609,19 @@ onBeforeUnmount(() => {
     <section v-if="growthNote" class="dash-growth-note" :class="`is-${growthNote.level}`">
       <span class="dash-growth-tag">{{ growthNote.tag }}</span>
       <p>{{ growthNote.note }}</p>
+    </section>
+
+    <!-- 学生评价：赛题把「用户评分」列进评审维度，这里显示真实收到的数字 -->
+    <section v-if="feedbackStats" class="dash-feedback-strip" aria-label="学生评价">
+      <span class="dfs-label"><PhChatsCircle :size="15" weight="duotone" />学生评价</span>
+      <template v-if="feedbackStats.total">
+        <strong>{{ feedbackStats.total }} 条</strong>
+        <span class="dfs-rate">有用率 {{ feedbackStats.rate }}%</span>
+        <span v-if="feedbackStats.by_target.length" class="dfs-top">
+          最多人评的是「{{ feedbackStats.by_target[0].target_name }}」（{{ feedbackStats.by_target[0].total }} 条）
+        </span>
+      </template>
+      <span v-else class="dfs-empty">还没有人评价 · 各模块结果下方点一次「有用」，这里就会出现真实数字</span>
     </section>
 
     <!-- ① 驾驶舱指标行 -->
@@ -1072,11 +1100,55 @@ onBeforeUnmount(() => {
   color: #8c1d17;
 }
 
+/* ==================== 学生评价条 ==================== */
+.dash-feedback-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .5rem .7rem;
+  margin: 0 0 1rem;
+  padding: .55rem .85rem;
+  border: 1px solid var(--divider, #d8ded4);
+  border-radius: 12px;
+  background: rgba(255, 254, 248, .8);
+  font-size: .82rem;
+  color: var(--muted, #667572);
+}
+
+.dfs-label {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-weight: 700;
+  color: #2f4a45;
+}
+
+.dash-feedback-strip strong {
+  font-size: .95rem;
+  color: var(--ink, #172b2a);
+}
+
+.dfs-rate {
+  padding: .05rem .5rem;
+  border-radius: 999px;
+  background: rgba(57, 127, 114, .13);
+  color: #2f6b60;
+  font-weight: 700;
+  font-size: .76rem;
+}
+
+.dfs-top,
+.dfs-empty {
+  font-size: .78rem;
+  color: var(--muted, #667572);
+}
+
 /* ==================== 响应式 ==================== */
 @media (max-width: 620px) {
   .dash-lower { grid-template-columns: 1fr; }
   .dash-card { padding: 1rem; }
   .dash-metric { padding: .9rem 1rem 1rem 1.05rem; }
   .dash-growth-note { flex-direction: column; gap: .3rem; }
+  .dash-feedback-strip { flex-direction: column; gap: .25rem; }
 }
 </style>

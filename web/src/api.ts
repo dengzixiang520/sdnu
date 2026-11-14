@@ -106,3 +106,110 @@ export async function streamChat(
   }
   return { providerOnline, escalated }
 }
+
+/** 一处规范化改动：前端要逐条展示，所以依据一起带回来。 */
+export interface NormalizeChange {
+  index: number
+  category: string
+  target: string
+  before: string
+  after: string
+  basis: string
+}
+
+export interface NormalizeChecklistItem {
+  item: string
+  present: boolean
+  note: string
+}
+
+export interface NormalizeResult {
+  doc_type: string
+  doc_type_name: string
+  paragraphs: number
+  text_chars: number
+  total_changes: number
+  by_category: Record<string, number>
+  level_counts: Record<string, number>
+  changes: NormalizeChange[]
+  warnings: string[]
+  checklist: NormalizeChecklistItem[]
+  standard: string
+  rule: string
+  token: string
+  filename: string
+  expires_in: number
+}
+
+export interface NormalizeResponse {
+  success: boolean
+  message: string
+  data: NormalizeResult
+}
+
+/**
+ * 上传一份已经写好的公文，让后端按国标重排版式。
+ *
+ * 这里不能复用 `identityHeaders()`：它固定写死 `Content-Type: application/json`，
+ * 而 multipart 必须让浏览器自己带 boundary，手写会直接 400。
+ */
+export async function uploadDocumentForNormalize(file: File, docType: string): Promise<NormalizeResponse> {
+  const { identity } = useIdentity()
+  const form = new FormData()
+  form.append('file', file)
+  form.append('doc_type', docType)
+  const response = await fetch('/api/v1/documents/normalize', {
+    method: 'POST',
+    headers: {
+      'X-User-Id': identity.value.userId,
+      'X-Session-Id': identity.value.sessionId,
+      'X-User-Role': identity.value.role,
+    },
+    body: form,
+  })
+  if (!response.ok) throw new Error(await readErrorMessage(response, '这份文档没能改成功'))
+  return await response.json() as NormalizeResponse
+}
+
+/** 评价聚合：赛题把「用户评分」列进评审维度，这里给出真实数字。 */
+export interface FeedbackTarget {
+  target: string
+  target_name: string
+  total: number
+  helpful: number
+  rate: number
+}
+
+export interface FeedbackSummary {
+  total: number
+  helpful: number
+  rate: number
+  by_target: FeedbackTarget[]
+  recent_notes: string[]
+  covered_targets: string[]
+  available_targets: { id: string; name: string }[]
+  note: string
+}
+
+export interface FeedbackAck {
+  success: boolean
+  message: string
+  data: { record_id: string; target: string; target_name: string; helpful: boolean }
+}
+
+export async function submitFeedback(target: string, helpful: boolean, note = ''): Promise<FeedbackAck> {
+  return await requestJson<FeedbackAck>('/api/v1/feedback', {
+    method: 'POST',
+    headers: identityHeaders(),
+    body: JSON.stringify({ target, helpful, note }),
+  }, '评价没发出去')
+}
+
+export async function feedbackSummary(): Promise<FeedbackSummary> {
+  const response = await requestJson<{ success: boolean; data: FeedbackSummary }>(
+    '/api/v1/feedback/summary',
+    {},
+    '暂时读不到评价',
+  )
+  return response.data
+}

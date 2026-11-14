@@ -120,6 +120,49 @@ const bookings = ref<BookingItem[]>([])
 const talkEntries = ref<TalkEntry[]>([])
 const talkSearch = ref('')
 
+/* 学生情况一页纸：命题一要的「学生情况汇总」。
+   只取档位、次数、时间与下一步，打卡正文和自评答案不在这张纸上。 */
+interface StudentProfile {
+  student_id: string
+  generated_at: string
+  alert_level: string
+  alert_reasons: string[]
+  mood: { checkins: number; latest_at: string | null; weather_counts: Record<string, number> }
+  self_check: { level: string; total: unknown; at: string } | null
+  booking: { slot: string; count: number; at: string } | null
+  ledger_note: string
+  next_steps: string[]
+  privacy_note: string
+}
+
+const profileStudent = ref('')
+const profileData = ref<StudentProfile | null>(null)
+const profileBusy = ref(false)
+const profileError = ref('')
+
+async function loadStudentProfile(studentId: string) {
+  if (profileBusy.value) return
+  // 再点同一个人就收起，避免一页纸把预警列表顶下去。
+  if (profileStudent.value === studentId && profileData.value) {
+    profileStudent.value = ''
+    profileData.value = null
+    profileError.value = ''
+    return
+  }
+  profileBusy.value = true
+  profileError.value = ''
+  profileStudent.value = studentId
+  profileData.value = null
+  try {
+    const result = await command('wellbeing', 'student_profile', '', { student_id: studentId })
+    profileData.value = result.data as unknown as StudentProfile
+  } catch (error) {
+    profileError.value = error instanceof Error ? error.message : '读不到这位学生的情况'
+  } finally {
+    profileBusy.value = false
+  }
+}
+
 const filteredTalkEntries = computed(() => {
   if (!talkSearch.value) return talkEntries.value
   const search = talkSearch.value.toLowerCase()
@@ -1555,7 +1598,52 @@ onBeforeUnmount(() => clearBreathTimer())
             <span class="alert-student">{{ alert.student_id }}</span>
             <span class="alert-reason">{{ alert.reason_codes.join(', ') }}</span>
             <span class="alert-time">{{ alert.created_at }}</span>
+            <button type="button" class="alert-profile-btn" @click="loadStudentProfile(alert.student_id)">
+              {{ profileStudent === alert.student_id && profileData ? '收起' : '一页纸' }}
+            </button>
           </div>
+        </div>
+
+        <p v-if="profileError" class="alert-profile-error">{{ profileError }}</p>
+        <p v-if="profileBusy" class="alert-profile-loading">正在汇总这位学生的情况…</p>
+
+        <div v-if="profileData" class="student-sheet" :class="`is-${profileData.alert_level}`">
+          <header>
+            <div>
+              <p class="sheet-eyebrow">学生情况一页纸</p>
+              <h3>{{ profileData.student_id }}</h3>
+            </div>
+            <span class="sheet-level">{{ profileData.alert_level }}</span>
+          </header>
+
+          <div class="sheet-grid">
+            <div>
+              <span>近 7 天打卡</span>
+              <strong>{{ profileData.mood.checkins }} 次</strong>
+              <em v-if="profileData.mood.latest_at">最近 {{ profileData.mood.latest_at.slice(5, 16).replace('T', ' ') }}</em>
+            </div>
+            <div>
+              <span>四题自评</span>
+              <strong>{{ profileData.self_check ? `${profileData.self_check.level} 档` : '未做过' }}</strong>
+              <em v-if="profileData.self_check">合计 {{ profileData.self_check.total }} 分</em>
+            </div>
+            <div>
+              <span>主动预约</span>
+              <strong>{{ profileData.booking ? `${profileData.booking.count} 次` : '没有' }}</strong>
+              <em v-if="profileData.booking">{{ profileData.booking.slot }}</em>
+            </div>
+          </div>
+
+          <div v-if="profileData.alert_reasons.length" class="sheet-reasons">
+            命中原因：{{ profileData.alert_reasons.join('、') }}
+          </div>
+
+          <ol class="sheet-steps">
+            <li v-for="(step, index) in profileData.next_steps" :key="index">{{ step }}</li>
+          </ol>
+
+          <p class="sheet-note">{{ profileData.privacy_note }}</p>
+          <p class="sheet-note">{{ profileData.ledger_note }}</p>
         </div>
       </article>
 
@@ -1958,5 +2046,151 @@ onBeforeUnmount(() => clearBreathTimer())
   .wbx-breath-card { align-items: center; }
   .wbx-review-bar { grid-template-columns: 4.6rem 1fr 1.8rem; }
   .wbx-insight-row { grid-template-columns: 1fr; gap: .1rem; }
+}
+
+/* ---------- 学生情况一页纸 ---------- */
+.alert-profile-btn {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  border: 1px solid #d8ded4;
+  border-radius: 999px;
+  background: #fffef8;
+  color: #172b2a;
+  font: inherit;
+  font-size: .78rem;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease;
+}
+
+.alert-profile-btn:hover {
+  border-color: #397f72;
+  background: #f5f4eb;
+}
+
+.alert-profile-error {
+  margin: 10px 0 0;
+  font-size: .82rem;
+  color: #b63d3d;
+}
+
+.alert-profile-loading {
+  margin: 10px 0 0;
+  font-size: .82rem;
+  color: #667572;
+}
+
+.student-sheet {
+  margin-top: 14px;
+  padding: 16px 18px 18px;
+  border: 1px solid #d8ded4;
+  border-left: 4px solid #397f72;
+  border-radius: 14px;
+  background: #fffef8;
+}
+
+.student-sheet.is-yellow { border-left-color: #d6a849; }
+.student-sheet.is-orange { border-left-color: #d8614d; }
+.student-sheet.is-red { border-left-color: #b63d3d; }
+
+.student-sheet header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.sheet-eyebrow {
+  margin: 0 0 2px;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  color: #667572;
+}
+
+.student-sheet h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #172b2a;
+}
+
+.sheet-level {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #dfece5;
+  color: #173f43;
+  font-size: .74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.student-sheet.is-yellow .sheet-level { background: rgba(214, 168, 73, .18); color: #8a6a3d; }
+.student-sheet.is-orange .sheet-level { background: rgba(216, 97, 77, .16); color: #a2432f; }
+.student-sheet.is-red .sheet-level { background: rgba(182, 61, 61, .16); color: #8c1d17; }
+
+.sheet-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin-bottom: 12px;
+}
+
+.sheet-grid > div {
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: #f5f4eb;
+}
+
+.sheet-grid span {
+  display: block;
+  font-size: .74rem;
+  color: #667572;
+}
+
+.sheet-grid strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 1.05rem;
+  color: #172b2a;
+}
+
+.sheet-grid em {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-size: .72rem;
+  color: #667572;
+}
+
+.sheet-reasons {
+  margin-bottom: 10px;
+  font-size: .78rem;
+  color: #8a6a3d;
+}
+
+.sheet-steps {
+  margin: 0 0 10px;
+  padding-left: 1.15rem;
+  display: grid;
+  gap: 5px;
+}
+
+.sheet-steps li {
+  font-size: .84rem;
+  line-height: 1.65;
+  color: #172b2a;
+}
+
+.sheet-note {
+  margin: 0;
+  font-size: .74rem;
+  line-height: 1.6;
+  color: #667572;
+}
+
+.sheet-note + .sheet-note {
+  margin-top: 4px;
 }
 </style>

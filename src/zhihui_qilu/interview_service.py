@@ -370,9 +370,126 @@ class InterviewReport(BaseModel):
     answers: list[AnswerReview]
     highlights: list[str]
     fixes: list[str]
+    # 命题五原文点名「表达能力、专业深度、英语水平、形象气质各维度打分」，
+    # 这一层按那四个词算；dimensions 仍是我们自己的六项细拆，两层都留着。
+    proposition_dimensions: list[Dimension] = Field(default_factory=list)
+    proposition_note: str = ""
 
 
 _FILLERS = ("嗯", "呃", "那个", "就是", "然后", "这个", "反正", "其实吧")
+
+
+def _looks_english(text: str) -> bool:
+    """题目是不是英语题：ASCII 字母占可读字符的比例超过一半就算。
+
+    比在契约里加 ``lang`` 字段更稳：前端不用改，历史数据也能用。
+    """
+    readable = [ch for ch in text if not ch.isspace()]
+    if not readable:
+        return False
+    letters = sum(1 for ch in readable if ch.isascii() and ch.isalpha())
+    return letters / len(readable) > 0.5
+
+
+def _proposition_dimensions(
+    dimensions: list[Dimension],
+    answers: list[AnswerMetric],
+    reviews: list[AnswerReview],
+    has_text: bool,
+) -> tuple[list[Dimension], str]:
+    """把命题五点名的四个维度算出来。
+
+    命题原文是「表达能力、专业深度、英语水平、形象气质各维度打分」。
+    我们另外拆的六项（语速/停顿/干净度/音量/应变/内容）是「怎么改」，
+    这一层是「评委看什么」，两层都要有，缺一层就少一半说服力。
+    """
+    by_key = {item.key: item for item in dimensions}
+    pace = by_key.get("pace")
+    pause = by_key.get("pause")
+    fluency = by_key.get("fluency")
+    presence = by_key.get("presence")
+    composure = by_key.get("composure")
+    content = by_key.get("content")
+
+    def weighted(pairs: list[tuple[Dimension | None, float]]) -> int:
+        usable = [(item, weight) for item, weight in pairs if item is not None]
+        if not usable:
+            return 60
+        total = sum(weight for _, weight in usable)
+        return max(0, min(100, round(sum(item.score * weight for item, weight in usable) / total)))
+
+    expression = weighted([(pace, 0.30), (pause, 0.30), (fluency, 0.40)])
+    depth = content.score if content is not None else 60
+    presence_score = weighted([(presence, 0.55), (composure, 0.45)])
+
+    # 英语水平只按英语题的逐题得分算；一场没出英语题就明说缺席，不拿别的分顶。
+    english_pairs: list[int] = []
+    for review in reviews:
+        if _looks_english(review.question):
+            english_pairs.append(_review_score(review))
+    if english_pairs:
+        english = round(sum(english_pairs) / len(english_pairs))
+        english_evidence = f"本场有 {len(english_pairs)} 道英语题，按这几题的逐题得分平均。"
+        english_advice = "英语部分先把「结论句 + 一个具体例子」固定成模板，再练追问。"
+    else:
+        english = 0
+        english_evidence = "本场没有出英语题，这一项不参与评估，也不给分。"
+        english_advice = "想练英语环节，把面试重点切到「英语」，系统会按计划多出英文题。"
+
+    result = [
+        Dimension(
+            key="expression",
+            label="表达能力",
+            score=expression,
+            evidence=(
+                f"由语速节奏 {pace.score}、停顿控制 {pause.score}、表达干净度 {fluency.score} 合成。"
+                if pace and pause and fluency
+                else "语音指标不全，本项按可用的细项合成。"
+            ),
+            advice=(fluency or pace or pause).advice if (fluency or pace or pause) else "先保证每题说完，再说漂亮。",
+        ),
+        Dimension(
+            key="depth",
+            label="专业深度",
+            score=depth,
+            evidence=(
+                f"由内容密度 {content.score} 承接：{content.evidence}"
+                if content is not None and has_text
+                else "本场没拿到转写文本，专业深度无法评估，本项不计入。"
+            ),
+            advice=content.advice if content is not None else "先确认浏览器语音识别可用，内容分才有依据。",
+        ),
+        Dimension(
+            key="english",
+            label="英语水平",
+            score=english,
+            evidence=english_evidence,
+            advice=english_advice,
+        ),
+        Dimension(
+            key="presence",
+            label="形象气质",
+            score=presence_score,
+            evidence=(
+                f"由音量与气场 {presence.score}、临场应变 {composure.score} 合成，只看镜头前可测的部分。"
+                if presence and composure
+                else "音量与反应数据不全，本项按可用细项合成。"
+            ),
+            advice=(presence or composure).advice if (presence or composure) else "开口前做一次腹式吸气，句尾不要泄气。",
+        ),
+    ]
+
+    note = (
+        "按定向命题五的四个维度给出；下面六项是同一场表现的细拆，用来定位具体改哪里。"
+        if english_pairs
+        else "按定向命题五的四个维度给出；本场未出英语题，英语水平留空，其余三项照常评估。"
+    )
+    return result, note
+
+
+def _review_score(review: AnswerReview) -> int:
+    """把逐题「好/稳/需加强」折成分数，用于英语题平均。"""
+    return {"好": 84, "稳": 72, "需加强": 58}.get(review.verdict, 68)
 
 
 def _pace_score(cpm: int) -> int:
@@ -626,6 +743,8 @@ def build_report(request: ReportRequest) -> InterviewReport:
     highlights = [f"{item.label} {item.score} 分：{item.evidence}" for item in ordered[-2:][::-1]]
     fixes = [f"{item.label}（{item.score} 分）：{item.advice}" for item in ordered[:2]]
 
+    proposition_dimensions, proposition_note = _proposition_dimensions(dimensions, answers, reviews, has_text)
+
     return InterviewReport(
         overall=overall,
         grade=grade,
@@ -649,4 +768,6 @@ def build_report(request: ReportRequest) -> InterviewReport:
         answers=reviews,
         highlights=highlights,
         fixes=fixes,
+        proposition_dimensions=proposition_dimensions,
+        proposition_note=proposition_note,
     )

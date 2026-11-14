@@ -470,7 +470,131 @@ class WellbeingService:
             payload = alert.model_dump(mode="json")
             payload["created_at"] = record.created_at.isoformat()
             alerts.append(payload)
-        return sorted(alerts, key=lambda item: str(item["created_at"]), reverse=True)
+
+        # 同一个学生每打卡一次就会新增一条预警，辅导员只需要看到最新那条；
+        # 条数保留在 alert_count 里，既不丢信息，也不让列表被同一个人刷满。
+        grouped: dict[str, list[dict[str, object]]] = {}
+        for item in alerts:
+            grouped.setdefault(str(item["student_id"]), []).append(item)
+        collapsed: list[dict[str, object]] = []
+        for items in grouped.values():
+            newest = dict(max(items, key=lambda item: str(item["created_at"])))
+            newest["alert_count"] = len(items)
+            collapsed.append(newest)
+        return sorted(collapsed, key=lambda item: str(item["created_at"]), reverse=True)
+
+    async def compose_student_profile(self, student_id: str) -> dict[str, object]:
+        """辅导员点开一名学生时的一页纸：只给判定结论、次数和时间，不给原文。
+
+        定向命题一要求「学生情况汇总」，但汇总不等于把人摊开看。这里刻意只取
+        情绪档位、次数、时间、原因码；打卡正文、自评逐题答案、对话原文一律不出这条线。
+        """
+        mood = await self._memory.query(
+            user_id=student_id,
+            tier=MemoryTier.SHORT_TERM,
+            category="wellbeing.mood_checkin",
+            permitted_scopes={AccessScope.OWNER},
+        )
+        alerts = await self._memory.query(
+            user_id=student_id,
+            tier=MemoryTier.SHORT_TERM,
+            category="wellbeing.counselor_alert",
+            permitted_scopes={AccessScope.AUTHORIZED_STAFF, AccessScope.SYSTEM_ONLY},
+        )
+        checks = await self._memory.query(
+            user_id=student_id,
+            category="wellbeing.self_check",
+            permitted_scopes={AccessScope.OWNER},
+        )
+        bookings = await self._memory.query(
+            user_id=student_id,
+            category="wellbeing.booking_request",
+            permitted_scopes={AccessScope.OWNER},
+        )
+
+        # 实时重算一次档位：存储里的预警可能已过期，不能拿旧结论当现状。
+        live_level, live_reasons = self._evaluate_alert(mood)
+        stored = []
+        for record in alerts:
+            try:
+                stored.append(CounselorAlert.model_validate(record.value))
+            except ValidationError:
+                continue
+        rank = {AlertLevel.GREEN: 0, AlertLevel.YELLOW: 1, AlertLevel.ORANGE: 2, AlertLevel.RED: 3}
+        highest = max(
+            [live_level, *[item.level for item in stored]],
+            key=lambda item: rank[item],
+        )
+
+        weather_counts: dict[str, int] = {}
+        for record in mood:
+            weather = str(record.value.get("weather", "unknown"))
+            weather_counts[weather] = weather_counts.get(weather, 0) + 1
+        latest_mood = max(mood, key=self._record_time) if mood else None
+
+        latest_check = None
+        if checks:
+            newest = max(checks, key=lambda item: item.created_at)
+            latest_check = {
+                "level": str(newest.value.get("level", "green")),
+                "total": newest.value.get("total"),
+                "at": newest.created_at.isoformat(),
+            }
+
+        latest_booking = None
+        if bookings:
+            newest_booking = max(bookings, key=lambda item: item.created_at)
+            latest_booking = {
+                "slot": str(newest_booking.value.get("slot", "")),
+                "count": len(bookings),
+                "at": newest_booking.created_at.isoformat(),
+            }
+
+        steps = self._profile_steps(highest, bool(latest_booking))
+
+        return {
+            "student_id": student_id,
+            "generated_at": utc_now().isoformat(),
+            "alert_level": str(highest),
+            "alert_reasons": live_reasons or sorted({code for item in stored for code in item.reason_codes}),
+            "mood": {
+                "checkins": len(mood),
+                "latest_at": latest_mood.value.get("checked_at") if latest_mood else None,
+                "weather_counts": weather_counts,
+            },
+            "self_check": latest_check,
+            "booking": latest_booking,
+            "ledger_note": "谈心台账由辅导员自己记，不在这里自动生成，避免把没谈过的话写成事实。",
+            "next_steps": steps,
+            "privacy_note": "这里只有档位、次数和时间。打卡正文、自评逐题答案、对话原文都不在这张纸上。",
+        }
+
+    @staticmethod
+    def _profile_steps(level: AlertLevel, has_booking: bool) -> list[str]:
+        """按档位给下一步动作，四档各不相同，别把红档和绿档说成一样的话。"""
+        if level is AlertLevel.RED:
+            return [
+                "今天就联系学生本人，不要等到下次班会。",
+                "同步学院心理辅导员，按学校四级预警流程上报。",
+                "联系家长前先和学生本人确认，避免二次伤害。",
+                "把处置过程记进谈心台账，留下时间线。",
+            ]
+        if level is AlertLevel.ORANGE:
+            return [
+                "两天内安排一次面谈，地点选学生愿意去的地方。",
+                "面谈只问「最近哪件事最耗你」，不追问细节。",
+                "告知心理中心的预约方式，把选择权留给学生。",
+            ]
+        if level is AlertLevel.YELLOW:
+            return [
+                "本周找机会自然聊两句，不必正式约谈。",
+                "留意是否连续走低；连续三天以上再升级处理。",
+                "可以推一条寄语或活动，先建立联系再谈问题。",
+            ]
+        return [
+            "暂无需要干预的信号，保持常规关注即可。" if not has_booking else "学生主动约过谈心，按约定时间去，别改期。",
+            "不需要因为这张纸找学生谈话——没有问题本身就是好结果。",
+        ]
 
     def build_talk_ledger(self, source: TalkLedgerInput) -> TalkLedgerEntry:
         """Create a counselor-reviewable ledger from confirmed facts, never raw audio/transcripts."""

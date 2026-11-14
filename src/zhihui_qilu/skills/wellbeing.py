@@ -139,8 +139,22 @@ class WellbeingSkill(BaseSkill):
             from zhihui_qilu.wellbeing_models import TalkLedgerInput
             entry = self._service.build_talk_ledger(TalkLedgerInput.model_validate(request.payload.get("ledger", {})))
             return AgentResponse(success=True, message="谈心记录已创建", data=entry.model_dump(mode="json"))
-        
+
+        # 学生情况一页纸：命题一要的「学生情况汇总」，只给档位、次数、时间
+        if action == "student_profile":
+            if request.context.role not in {UserRole.COUNSELOR, UserRole.ADMINISTRATOR}:
+                return AgentResponse(success=False, message="仅辅导员或管理员可查看学生情况汇总")
+            student_id = str(request.payload.get("student_id") or "").strip()
+            if not student_id:
+                return AgentResponse(success=False, message="先说要看哪位学生，把学号或用户 ID 填上")
+            profile = await self._service.compose_student_profile(student_id)
+            return AgentResponse(
+                success=True,
+                message=f"{student_id}：当前 {profile['alert_level']} 档，共 {len(profile['next_steps'])} 条下一步",
+                data=profile,
+            )
+
         return AgentResponse(success=False, message="不支持的心育操作", data={
             "student_actions": ["greeting", "guide_opening", "soothe_suggestions", "growth_note", "self_check_items", "submit_self_check", "control", "mood_checkin", "mood_history", "request_booking", "wall_messages", "happy_shares", "publish_happy_share", "cheer_happy_share"],
-            "staff_actions": ["publish_wall_message", "list_alerts", "list_bookings", "create_talk_ledger"]
+            "staff_actions": ["publish_wall_message", "list_alerts", "list_bookings", "create_talk_ledger", "student_profile"]
         })
