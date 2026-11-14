@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import {
-  PhTrophy, PhStar, PhMedal, PhChartLine, PhCalendar, PhGift,
+  PhTrophy, PhStar, PhMedal, PhChartBar, PhChartLine, PhCalendar, PhGift,
   PhUsers, PhCoins, PhTrendUp, PhArrowRight, PhInfo, PhSealCheck, PhSparkle,
 } from '@phosphor-icons/vue'
 import { useIdentity } from '../identity'
-import { requestJson } from '../api'
+import { loadFiveDimensions, requestJson } from '../api'
+import type { FiveDimensionSummary } from '../api'
 import ExchangeShop from './ExchangeShop.vue'
 
 interface UserPoints {
@@ -521,6 +522,21 @@ function goTab(tab: string) {
   activeTab.value = tab
 }
 
+/* 五育分布：把单一积分数字拆成德智体美劳，对应教育部「全要素横向评价」。
+   认不出的积分进「未归类」，不硬塞——比假装每笔都能归类诚实。 */
+const fiveDimensions = ref<FiveDimensionSummary | null>(null)
+const fiveError = ref('')
+
+async function fetchFiveDimensions() {
+  fiveError.value = ''
+  try {
+    fiveDimensions.value = await loadFiveDimensions(identity.value.userId)
+  } catch (reason) {
+    fiveDimensions.value = null
+    fiveError.value = reason instanceof Error ? reason.message : '读不到五育分布'
+  }
+}
+
 onMounted(async () => {
   await fetchUserPoints()
   fetchLeaderboard()
@@ -528,6 +544,7 @@ onMounted(async () => {
   await fetchRecords()
   checkTodayChecked()
   fetchProducts()
+  void fetchFiveDimensions()
 })
 </script>
 
@@ -829,7 +846,44 @@ onMounted(async () => {
         </div>
       </section>
 
-      <!-- 4. 积分花到哪 -->
+      <!-- 4. 五育分布 -->
+      <section class="overview-panel">
+        <div class="panel-head">
+          <h3><PhChartBar :size="20" weight="duotone" /> 五育分布</h3>
+          <button type="button" class="panel-link" @click="fetchFiveDimensions">
+            刷新 <PhArrowRight :size="13" />
+          </button>
+        </div>
+        <p class="panel-desc">
+          把积分拆成德智体美劳五育，对应教育部《「人工智能+教育」行动计划》里的「德智体美劳全要素横向评价」。
+          这一层只看你自己的分布，不是评优依据。
+        </p>
+
+        <p v-if="fiveError" class="five-error">{{ fiveError }}</p>
+
+        <template v-else-if="fiveDimensions">
+          <p class="five-summary">{{ fiveDimensions.summary }}</p>
+
+          <ul class="five-bars">
+            <li v-for="item in fiveDimensions.dimensions" :key="item.id">
+              <span class="five-label">{{ item.label }}</span>
+              <div class="five-track">
+                <i :style="{ width: `${Math.max(item.share, item.points > 0 ? 4 : 0)}%` }" />
+              </div>
+              <span class="five-value">{{ item.points }}<em>{{ item.share }}%</em></span>
+              <span class="five-note">{{ item.note }}</span>
+            </li>
+          </ul>
+
+          <p v-if="fiveDimensions.unclassified > 0" class="five-unclassified">
+            另有 {{ fiveDimensions.unclassified }} 分（{{ fiveDimensions.unclassified_share }}%）还没归类：
+            来源说明里没有可识别的关键词，所以没硬塞进某一育。
+          </p>
+          <p class="five-foot">{{ fiveDimensions.note }}</p>
+        </template>
+      </section>
+
+      <!-- 5. 积分花到哪 -->
       <section class="overview-panel">
         <div class="panel-head">
           <h3><PhGift :size="20" weight="duotone" /> 积分花到哪</h3>
@@ -1439,6 +1493,104 @@ onMounted(async () => {
 
   .ptsx-badge-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ==================== 五育分布 ==================== */
+.five-summary {
+  margin: 0 0 14px;
+  font-size: .88rem;
+  line-height: 1.7;
+  color: #172b2a;
+}
+
+.five-bars {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.five-bars li {
+  display: grid;
+  grid-template-columns: 28px 1fr 84px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.five-label {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: #dfece5;
+  color: #173f43;
+  font-size: .86rem;
+  font-weight: 700;
+}
+
+.five-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #eef1ea;
+  overflow: hidden;
+}
+
+.five-track i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #397f72, #6aa899);
+  transition: width .3s ease;
+}
+
+.five-value {
+  font-size: .86rem;
+  font-weight: 700;
+  color: #172b2a;
+  font-variant-numeric: tabular-nums;
+}
+
+.five-value em {
+  margin-left: 4px;
+  font-style: normal;
+  font-size: .72rem;
+  font-weight: 600;
+  color: #667572;
+}
+
+.five-note {
+  font-size: .74rem;
+  color: #667572;
+}
+
+.five-unclassified,
+.five-foot {
+  margin: 12px 0 0;
+  font-size: .76rem;
+  line-height: 1.65;
+  color: #667572;
+}
+
+.five-unclassified {
+  color: #8a6a3d;
+}
+
+.five-error {
+  margin: 0;
+  font-size: .82rem;
+  color: #b63d3d;
+}
+
+@media (max-width: 720px) {
+  .five-bars li {
+    grid-template-columns: 28px 1fr 76px;
+  }
+
+  .five-note {
+    display: none;
   }
 }
 </style>

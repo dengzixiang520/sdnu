@@ -3,7 +3,14 @@
 from decimal import Decimal
 
 from zhihui_qilu.core.models import AgentRequest, AgentResponse
-from zhihui_qilu.dormitory_models import DormInspection, DutyAssignment, ScheduleEvent, SharedExpense
+from zhihui_qilu.dormitory_models import (
+    DimensionInput,
+    DormInspection,
+    DutyAssignment,
+    InspectionRecord,
+    ScheduleEvent,
+    SharedExpense,
+)
 from zhihui_qilu.dormitory_service import DormitoryService, ScheduleCoordinator, TimetableParser
 from zhihui_qilu.skills.base import BaseSkill
 
@@ -38,4 +45,30 @@ class DormitorySkill(BaseSkill):
             conflicts = self._coordinator.find_conflicts(assignments, member_events)
             suggestions = self._coordinator.suggest_swaps(conflicts, assignments, member_events)
             return AgentResponse(success=True, message="日程冲突分析完成", data={"conflicts": [item.model_dump(mode="json") for item in conflicts], "suggestions": [item.model_dump(mode="json") for item in suggestions]})
-        return AgentResponse(success=False, message="不支持的宿舍协同操作", data={"supported_actions": ["parse_text_timetable", "settle_expenses", "improvement_suggestion", "analyze_schedule_conflicts"]})
+
+        # 命题二要的「宿舍检查反馈」：五个维度各一句「看到什么 + 怎么改」，不打分不排名
+        if action == "inspection_report":
+            label = str(request.payload.get("dormitory_label") or "").strip()
+            if not label:
+                return AgentResponse(success=False, message="先填宿舍号，比如「文渊楼 3-502」")
+            try:
+                inputs = [DimensionInput.model_validate(item) for item in request.payload.get("dimensions", [])]
+            except ValueError as exc:
+                return AgentResponse(success=False, message=f"维度数据不对：{exc}")
+            report = self._service.build_inspection_report(
+                label,
+                inputs,
+                strengths=[str(item) for item in request.payload.get("strengths", [])],
+            )
+            return AgentResponse(success=True, message=report.summary, data=report.model_dump(mode="json"))
+
+        # 命题二要的「典型问题汇总」：过半宿舍有的算共性，一两个宿舍有的算个别隐患
+        if action == "issue_digest":
+            try:
+                records = [InspectionRecord.model_validate(item) for item in request.payload.get("records", [])]
+            except ValueError as exc:
+                return AgentResponse(success=False, message=f"检查记录格式不对：{exc}")
+            digest = self._service.summarize_issues(records)
+            return AgentResponse(success=True, message=digest.summary, data=digest.model_dump(mode="json"))
+
+        return AgentResponse(success=False, message="不支持的宿舍协同操作", data={"supported_actions": ["parse_text_timetable", "settle_expenses", "improvement_suggestion", "analyze_schedule_conflicts", "inspection_report", "issue_digest"]})

@@ -63,6 +63,11 @@ class WellbeingSkill(BaseSkill):
             return AgentResponse(success=True, message=result.support_message, data=result.model_dump(mode="json"))
         
         # 情绪趋势 / 心情日历：只回给打卡本人，窗口受 7 天保留期限制
+        # 情绪趋势：连续几天走低比某一天暴雨更值得关心
+        if action == "mood_trend":
+            trend = await self._service.compose_mood_trend(request.context.user_id)
+            return AgentResponse(success=True, message=str(trend["message"]), data=trend)
+
         if action == "mood_history":
             try:
                 days = int(request.payload.get("days", 7))
@@ -155,6 +160,6 @@ class WellbeingSkill(BaseSkill):
             )
 
         return AgentResponse(success=False, message="不支持的心育操作", data={
-            "student_actions": ["greeting", "guide_opening", "soothe_suggestions", "growth_note", "self_check_items", "submit_self_check", "control", "mood_checkin", "mood_history", "request_booking", "wall_messages", "happy_shares", "publish_happy_share", "cheer_happy_share"],
+            "student_actions": ["greeting", "guide_opening", "soothe_suggestions", "growth_note", "self_check_items", "submit_self_check", "control", "mood_checkin", "mood_trend", "mood_history", "request_booking", "wall_messages", "happy_shares", "publish_happy_share", "cheer_happy_share"],
             "staff_actions": ["publish_wall_message", "list_alerts", "list_bookings", "create_talk_ledger", "student_profile"]
         })

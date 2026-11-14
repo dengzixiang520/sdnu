@@ -83,6 +83,13 @@ async def get_points_rules(request: Request) -> dict[str, Any]:
     return {"success": True, "data": {"rules": service.get_points_rules()}}
 
 
+@router.get("/user/{user_id}/five-dimensions")
+async def get_five_dimensions(user_id: str, request: Request) -> dict[str, Any]:
+    """把积分折算成德智体美劳五育分布，对应教育部要求的「全要素横向评价」。"""
+    service = get_service(request)
+    return {"success": True, "data": service.get_five_dimension_summary(user_id)}
+
+
 @router.post("/add")
 async def add_points(
     body: AddPointsRequest,

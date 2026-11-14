@@ -2,10 +2,10 @@
 /**
  * 演示模式：把 6 分钟的路演路线钉在界面上。
  *
- * 线下展示最怕两件事：点错页面、讲乱了顺序。所以这里把 6 站写死成一条线，
+ * 线下展示最怕两件事：点错页面、讲乱了顺序。所以这里把 8 站写死成一条线，
  * 点一下就直达，还带一句「这一站该说什么」。键盘 ← / → 也能翻，站着讲不用找鼠标。
  *
- * 第 6 站需要辅导员身份才能看到「一页纸」，所以进站时自动切身份；
+ * 第 8 站需要辅导员身份才能看到「一页纸」，所以进站时自动切身份；
  * 演示结束时切回学生，免得下一位评委看到的是辅导员视角。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -51,6 +51,18 @@ const STOPS: TourStop[] = [
     path: '/documents',
     title: '文档工坊 · 上传改格式',
     script: '拖一份格式乱的通知进来，40 处改动逐条带依据，正文一个字不改。这段最容易被评委当场验证。',
+  },
+  {
+    id: 'phishing',
+    path: '/phishing',
+    title: '钓鱼识别 · 指着原话说',
+    script: '点「填入可疑样例」再点识别：仿冒域名、索要验证码、施压措辞各自命中，每条都引用原文。纯规则、不联网、不打开链接。',
+  },
+  {
+    id: 'poster',
+    path: '/poster',
+    title: '学术海报 · 一键成页',
+    script: '点「填入示例」再生成：字号按 A0 等比算，右边直接出预览和体检清单。下载的是 HTML，改一个字不用重新生成。',
   },
   {
     id: 'profile',
@@ -121,7 +133,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       type="button"
       class="demo-toggle"
       :class="{ active: open }"
-      title="按 6 站顺序演示，键盘 ← → 可翻页"
+      title="按演示路线顺序走，键盘 ← → 可翻页"
       @click="open = !open"
     >
       <PhPresentationChart :size="16" weight="duotone" />

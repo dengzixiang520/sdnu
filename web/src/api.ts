@@ -243,3 +243,126 @@ export async function loadEvidence(): Promise<EvidencePayload> {
   )
   return response.data
 }
+
+/** 五育分布：把积分折算成德智体美劳，对应教育部要求的「全要素横向评价」。 */
+export interface FiveDimension {
+  id: string
+  label: string
+  note: string
+  points: number
+  share: number
+}
+
+export interface FiveDimensionSummary {
+  user_id: string
+  total: number
+  dimensions: FiveDimension[]
+  unclassified: number
+  unclassified_share: number
+  summary: string
+  note: string
+}
+
+export async function loadFiveDimensions(userId: string): Promise<FiveDimensionSummary> {
+  const response = await requestJson<{ success: boolean; data: FiveDimensionSummary }>(
+    `/api/v1/points/user/${encodeURIComponent(userId)}/five-dimensions`,
+    {},
+    '暂时读不到五育分布',
+  )
+  return response.data
+}
+
+/** 钓鱼识别：纯规则、可解释、离线可用。正文走 payload 而不是 text，
+ * 因为安全网关会把 text 里的邮箱、手机号打码，而判断发件域名恰恰要看邮箱。 */
+export interface PhishingFinding {
+  code: string
+  title: string
+  detail: string
+  weight: number
+  evidence: string[]
+}
+
+export interface PhishingReport {
+  input_type: string
+  risk_level: 'high' | 'medium' | 'low'
+  risk_label: string
+  score: number
+  findings: PhishingFinding[]
+  advice: string[]
+  note: string
+  scanned_links: string[]
+  safe_links: string[]
+}
+
+export async function checkPhishing(
+  kind: 'text' | 'html' | 'url',
+  content: string,
+): Promise<PhishingReport> {
+  const action = kind === 'text' ? 'check_text' : kind === 'html' ? 'check_html' : 'check_url'
+  const field = kind === 'text' ? 'text' : kind === 'html' ? 'html' : 'url'
+  const response = await command('phishing', action, '', { [field]: content })
+  if (!response.success) throw new Error(response.message || '识别失败')
+  return response.data as unknown as PhishingReport
+}
+
+/** 学术海报：后端出可打印的 HTML，前端只负责预览、体检清单和下载。 */
+export interface PosterSectionInput {
+  heading: string
+  body: string
+  bullets: string[]
+}
+
+export interface PosterFigureInput {
+  caption: string
+  hint: string
+}
+
+export interface PosterRequestInput {
+  title: string
+  authors: string
+  affiliation: string
+  contact: string
+  keywords: string[]
+  sections: PosterSectionInput[]
+  figures: PosterFigureInput[]
+  size: string
+  footer: string
+}
+
+export interface PosterFontPlan {
+  title_pt: number
+  section_pt: number
+  body_pt: number
+  caption_pt: number
+  columns: number
+}
+
+export interface PosterCheckItem {
+  id: string
+  label: string
+  passed: boolean
+  advice: string
+  level: string
+}
+
+export interface PosterPlan {
+  size: string
+  size_label: string
+  width_mm: number
+  height_mm: number
+  fonts: PosterFontPlan
+  section_count: number
+  figure_count: number
+  word_count: number
+  checklist: PosterCheckItem[]
+  passed_count: number
+  warnings: string[]
+  print_hint: string
+  html: string
+}
+
+export async function buildPoster(input: PosterRequestInput): Promise<PosterPlan> {
+  const response = await command('poster', 'build_poster', '', { poster: input })
+  if (!response.success) throw new Error(response.message || '海报没生成出来')
+  return response.data as unknown as PosterPlan
+}

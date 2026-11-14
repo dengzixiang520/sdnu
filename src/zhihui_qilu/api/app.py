@@ -20,6 +20,7 @@ from zhihui_qilu.api.routes.interview import router as interview_router
 from zhihui_qilu.api.routes.study_plan import router as study_plan_router
 from zhihui_qilu.api.routes.health import router as health_router
 from zhihui_qilu.api.routes.music import router as music_router
+from zhihui_qilu.api.routes.poster import router as poster_router
 from zhihui_qilu.bootstrap import PlatformContainer
 from zhihui_qilu.config import Settings
 
@@ -65,4 +66,5 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(study_plan_router)
     app.include_router(integration_router)
     app.include_router(music_router)
+    app.include_router(poster_router)
     return app

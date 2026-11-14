@@ -13,6 +13,8 @@ from zhihui_qilu.skills.academic import AcademicSkill
 from zhihui_qilu.skills.innovation import InnovationSkill
 from zhihui_qilu.skills.document_engine import DocumentEngineSkill
 from zhihui_qilu.skills.wellbeing import WellbeingSkill
+from zhihui_qilu.skills.phishing import PhishingSkill
+from zhihui_qilu.skills.poster import PosterSkill
 from zhihui_qilu.competition_service import CompetitionService
 from zhihui_qilu.feedback_service import FeedbackService
 from zhihui_qilu.points_service import PointsService
@@ -75,7 +77,7 @@ class PlatformContainer:
         self.points_service = PointsService("./data")
         self.feedback = FeedbackService(self.memory)
         self.system_integration = SystemIntegrationService()
-        self.router = SuperAgentRouter(self.security_gateway, [WellbeingSkill(self.wellbeing), DormitorySkill(), AcademicSkill(self.academic), self.innovation, DocumentEngineSkill(provider=self.ai_provider)])
+        self.router = SuperAgentRouter(self.security_gateway, [WellbeingSkill(self.wellbeing), DormitorySkill(), AcademicSkill(self.academic), self.innovation, DocumentEngineSkill(provider=self.ai_provider), PhishingSkill(), PosterSkill()])
 
     async def seed_demo_content(self) -> None:
         """启动时补齐内容型模块的空状态。

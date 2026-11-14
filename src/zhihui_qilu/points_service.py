@@ -56,6 +56,24 @@ POINTS_RULES = {
     "checkin_streak_30": 100,
 }
 
+# 五育：教育部《「人工智能+教育」行动计划》要求「德智体美劳全要素横向评价」。
+# 每项带一组关键词，用来把积分来源说明归到对应的一育。
+FIVE_DIMENSIONS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
+    ("de", "德", "思想品德与志愿服务", ("志愿", "公益", "党团", "思政", "文明", "诚信", "服务", "宣讲")),
+    ("zhi", "智", "学业与竞赛", ("竞赛", "学业", "学习", "考试", "科研", "论文", "讲座", "读书", "笔记")),
+    ("ti", "体", "体育与健康", ("体育", "运动", "跑步", "体测", "健身", "球", "游泳", "登山")),
+    ("mei", "美", "审美与文艺", ("文艺", "美育", "音乐", "书法", "摄影", "设计", "演出", "合唱", "绘画", "戏剧")),
+    ("lao", "劳", "劳动与实践", ("劳动", "宿舍", "值日", "卫生", "实践", "实习", "支教", "勤工")),
+)
+
+# 说明文字里没有关键词时，按来源类型兜底。
+# checkin 是每天坚持打卡，归德育；competition 归智育；activity 多是思政与公益活动，归德育。
+SOURCE_DEFAULT_DIMENSION: dict[str, str] = {
+    "checkin": "de",
+    "competition": "zhi",
+    "activity": "de",
+}
+
 # 徽章定义
 BADGES = [
     {"id": "newcomer", "name": "初来乍到", "description": "获得首个积分", "icon": "🌱", "requirement": 1, "category": "general"},
@@ -226,6 +244,80 @@ class PointsService:
     def get_points_rules(self) -> dict[str, int]:
         """Get points rules."""
         return POINTS_RULES
+
+    def get_five_dimension_summary(self, user_id: str) -> dict[str, Any]:
+        """把积分折算成德智体美劳五育分布。
+
+        教育部《「人工智能+教育」行动计划》第（八）条要求「德智体美劳全要素横向评价」。
+        我们的积分本来是单维度的一个数字，这一层把它拆成五育，让「横向」有东西可比。
+
+        归类规则：先看来源说明里的关键词，再看来源类型。认不出的不硬塞，
+        单独计进「未归类」并说明原因——比假装每笔都能归类诚实。
+        """
+        records = [
+            item
+            for item in self._load_records()
+            if item.get("user_id") == user_id and int(item.get("points", 0)) > 0
+        ]
+        buckets: dict[str, int] = {key: 0 for key, *_rest in FIVE_DIMENSIONS}
+        unclassified = 0
+        for record in records:
+            points = int(record.get("points", 0))
+            dimension = self._classify_dimension(
+                str(record.get("source", "")),
+                str(record.get("source_detail", "")),
+            )
+            if dimension is None:
+                unclassified += points
+            else:
+                buckets[dimension] += points
+
+        total = sum(buckets.values()) + unclassified
+        dimensions = [
+            {
+                "id": key,
+                "label": label,
+                "note": note,
+                "points": buckets[key],
+                "share": round(buckets[key] / total * 100) if total else 0,
+            }
+            for key, label, note, _keywords in FIVE_DIMENSIONS
+        ]
+        covered = [item for item in dimensions if item["points"] > 0]
+        if not total:
+            summary = "还没有积分记录，先打一次卡或提交一项竞赛，五育分布就会出现。"
+        elif covered:
+            strongest = max(covered, key=lambda item: item["points"])
+            weakest = min(dimensions, key=lambda item: item["points"])
+            summary = (
+                f"五育里最厚的是「{strongest['label']}」（{strongest['points']} 分，{strongest['share']}%）；"
+                f"「{weakest['label']}」还是 0 分，想补齐可以从{weakest['note']}入手。"
+                if weakest["points"] == 0
+                else f"五育里最厚的是「{strongest['label']}」（{strongest['points']} 分），最薄的是「{weakest['label']}」（{weakest['points']} 分）。"
+            )
+        else:
+            summary = "积分都有了，但都还没归到五育里。"
+
+        return {
+            "user_id": user_id,
+            "total": total,
+            "dimensions": dimensions,
+            "unclassified": unclassified,
+            "unclassified_share": round(unclassified / total * 100) if total else 0,
+            "summary": summary,
+            "note": (
+                "按积分来源的说明文字归类，认不出的计入「未归类」，不硬塞进某一育。"
+                "这是给学生的自我盘点，不是评优依据。"
+            ),
+        }
+
+    @staticmethod
+    def _classify_dimension(source: str, detail: str) -> str | None:
+        """先按说明文字的关键词判，再按来源类型兜底；都判不出就返回 None。"""
+        for key, _label, _note, keywords in FIVE_DIMENSIONS:
+            if any(word in detail for word in keywords):
+                return key
+        return SOURCE_DEFAULT_DIMENSION.get(source)
 
     def add_competition_points(self, user_id: str, user_name: str, award_level: str, competition_name: str) -> dict[str, Any]:
         """Add points for competition award."""

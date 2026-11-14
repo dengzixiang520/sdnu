@@ -82,6 +82,8 @@ onMounted(() => {
   loadDutyWeek()
   loadScheduleOwner()
   loadExpenseLog()
+  loadInspections()
+  void refreshDigest()
 })
 
 interface TimetableEvent { 
@@ -880,6 +882,158 @@ async function improve() {
     error.value = reason instanceof Error ? reason.message : '生成失败'
   }
 }
+
+/* ---------- 检查反馈与典型问题汇总（定向命题二） ---------- */
+/* 命题二要「宿舍检查反馈」和「典型问题汇总」，还特别写了「避免简单通报批评」。
+   所以这里不打分、不排名：五个维度各给一句「看到什么 + 怎么改」，
+   再按宿舍数量把问题分成共性（值得开会讲）与个别（单独提醒）。 */
+const INSPECT_DIMENSIONS = [
+  { id: 'hygiene', label: '卫生' },
+  { id: 'safety', label: '安全秩序' },
+  { id: 'schedule', label: '作息规律' },
+  { id: 'relation', label: '关系调适' },
+  { id: 'civility', label: '文明习惯' },
+] as const
+
+const INSPECT_STATES = [
+  { id: 'good', label: '良好' },
+  { id: 'watch', label: '需注意' },
+  { id: 'issue', label: '有问题' },
+] as const
+
+interface DimensionNote {
+  dimension: string
+  label: string
+  state: string
+  observation: string
+  feedback: string
+  action: string
+}
+
+interface InspectionReport {
+  dormitory_label: string
+  notes: DimensionNote[]
+  strengths: string[]
+  summary: string
+  encouragement: string
+  issue_count: number
+  watch_count: number
+}
+
+interface CommonIssue {
+  dimension: string
+  label: string
+  dorms: number
+  total_dorms: number
+  share: number
+  advice: string
+  is_common: boolean
+}
+
+interface IssueDigest {
+  total_inspections: number
+  total_dorms: number
+  common_issues: CommonIssue[]
+  isolated_issues: CommonIssue[]
+  summary: string
+  note: string
+}
+
+interface StoredInspection {
+  dormitory_label: string
+  dimensions: Record<string, string>
+}
+
+const INSPECT_STORE = 'zhq-dorm-inspections-v1'
+const inspectDorm = ref('文渊楼 3-502')
+const inspectStates = ref<Record<string, string>>({
+  hygiene: 'good', safety: 'good', schedule: 'good', relation: 'good', civility: 'good',
+})
+const inspectNotes = ref<Record<string, string>>({})
+const inspectionReport = ref<InspectionReport | null>(null)
+const issueDigest = ref<IssueDigest | null>(null)
+const inspectBusy = ref(false)
+const inspectNotice = ref('')
+const inspectionRecords = ref<StoredInspection[]>([])
+
+function persistInspections() {
+  try {
+    localStorage.setItem(INSPECT_STORE, JSON.stringify(inspectionRecords.value))
+  } catch {
+    // 存不下就只留在内存里，不影响生成反馈
+  }
+}
+
+function loadInspections() {
+  try {
+    const raw = localStorage.getItem(INSPECT_STORE)
+    if (raw) {
+      const parsed = JSON.parse(raw) as StoredInspection[]
+      if (Array.isArray(parsed) && parsed.length) {
+        inspectionRecords.value = parsed
+        return
+      }
+    }
+  } catch {
+    // 数据坏了就重来
+  }
+  // 第一次进来放四条示例，汇总才有东西可看；不写进任何学生个人档案。
+  inspectionRecords.value = [
+    { dormitory_label: '文渊楼 3-501', dimensions: { hygiene: 'issue', schedule: 'watch' } },
+    { dormitory_label: '文渊楼 3-502', dimensions: { hygiene: 'issue', safety: 'watch' } },
+    { dormitory_label: '文渊楼 3-503', dimensions: { hygiene: 'watch', civility: 'issue' } },
+    { dormitory_label: '文渊楼 3-504', dimensions: { schedule: 'issue' } },
+  ]
+  persistInspections()
+}
+
+function stateLabel(state: string): string {
+  return INSPECT_STATES.find((item) => item.id === state)?.label ?? state
+}
+
+async function refreshDigest() {
+  try {
+    const result = await command('dormitory', 'issue_digest', '', { records: inspectionRecords.value })
+    issueDigest.value = result.data as unknown as IssueDigest
+  } catch {
+    issueDigest.value = null
+  }
+}
+
+async function runInspection() {
+  if (inspectBusy.value) return
+  inspectBusy.value = true
+  inspectNotice.value = ''
+  try {
+    const dimensions = INSPECT_DIMENSIONS.map((dim) => ({
+      dimension: dim.id,
+      state: inspectStates.value[dim.id] ?? 'good',
+      note: inspectNotes.value[dim.id] ?? '',
+    }))
+    const result = await command('dormitory', 'inspection_report', '', {
+      dormitory_label: inspectDorm.value.trim() || '本宿舍',
+      dimensions,
+    })
+    const report = result.data as unknown as InspectionReport
+    inspectionReport.value = report
+
+    const stored: StoredInspection = {
+      dormitory_label: report.dormitory_label,
+      dimensions: Object.fromEntries(dimensions.map((item) => [item.dimension, item.state])),
+    }
+    inspectionRecords.value = [
+      ...inspectionRecords.value.filter((item) => item.dormitory_label !== stored.dormitory_label),
+      stored,
+    ]
+    persistInspections()
+    await refreshDigest()
+  } catch (reason) {
+    inspectNotice.value = reason instanceof Error ? reason.message : '生成失败'
+  } finally {
+    inspectBusy.value = false
+  }
+}
+
 
 /* ==================================================================
  * 值日排班 + 冲突检测
@@ -1725,13 +1879,85 @@ function getDayOfWeek(dateStr: string) {
       <img :src="previewPhoto" alt="照片预览">
     </div>
 
-    <!-- 整改建议 -->
-    <article class="suggestion-panel">
-      <p class="micro">05 / 整改建议</p>
-      <h2>把检查记录改写为可执行建议。</h2>
-      <label>观察到的情况<input v-model="observation" /></label>
-      <button class="soft-button" @click="improve">生成建议</button>
-      <p v-if="suggestion" class="suggestion-copy">{{ suggestion }}</p>
+    <!-- 检查反馈 · 典型问题汇总 -->
+    <article class="inspection-panel">
+      <p class="micro">05 / 检查反馈 · 典型问题</p>
+      <h2>把一次检查，写成五句话。</h2>
+      <p class="panel-sub">
+        卫生、安全秩序、作息规律、关系调适、文明习惯五项，每项三档。不打分、不排名，
+        每一条都给一个具体动作——命题二的原话是「避免简单通报批评」。
+      </p>
+
+      <div class="inspect-form">
+        <label class="inspect-dorm">宿舍<input v-model="inspectDorm" placeholder="文渊楼 3-502"></label>
+
+        <div v-for="dim in INSPECT_DIMENSIONS" :key="dim.id" class="inspect-row">
+          <span class="inspect-label">{{ dim.label }}</span>
+          <div class="inspect-states">
+            <button
+              v-for="state in INSPECT_STATES"
+              :key="state.id"
+              type="button"
+              :class="['inspect-state', `is-${state.id}`, { active: inspectStates[dim.id] === state.id }]"
+              @click="inspectStates[dim.id] = state.id"
+            >{{ state.label }}</button>
+          </div>
+          <input v-model="inspectNotes[dim.id]" class="inspect-note" placeholder="现场看到什么（可不填）">
+        </div>
+
+        <button class="soft-button" type="button" :disabled="inspectBusy" @click="runInspection">
+          {{ inspectBusy ? '生成中…' : '生成检查反馈' }}
+        </button>
+        <p v-if="inspectNotice" class="inspect-notice">{{ inspectNotice }}</p>
+      </div>
+
+      <div v-if="inspectionReport" class="inspect-report">
+        <p class="inspect-summary">{{ inspectionReport.summary }}</p>
+        <ul class="inspect-notes">
+          <li v-for="note in inspectionReport.notes" :key="note.dimension" :class="`is-${note.state}`">
+            <div class="inspect-note-head">
+              <strong>{{ note.label }}</strong>
+              <em>{{ stateLabel(note.state) }}</em>
+            </div>
+            <p class="inspect-obs">{{ note.observation }}</p>
+            <p class="inspect-act">{{ note.action }}</p>
+          </li>
+        </ul>
+        <p v-if="inspectionReport.strengths.length" class="inspect-strength">
+          这次值得肯定：{{ inspectionReport.strengths.join('、') }}
+        </p>
+        <p class="inspect-encourage">{{ inspectionReport.encouragement }}</p>
+      </div>
+
+      <div v-if="issueDigest" class="inspect-digest">
+        <h3>典型问题汇总</h3>
+        <p class="digest-summary">{{ issueDigest.summary }}</p>
+        <div class="digest-columns">
+          <div>
+            <strong>共性问题 · 值得开一次短会</strong>
+            <ul v-if="issueDigest.common_issues.length">
+              <li v-for="item in issueDigest.common_issues" :key="item.dimension">
+                <span>{{ item.label }}</span>
+                <em>{{ item.dorms }} / {{ item.total_dorms }} 个宿舍（{{ item.share }}%）</em>
+                <p>{{ item.advice }}</p>
+              </li>
+            </ul>
+            <p v-else class="digest-empty">这次没有过半宿舍都出现的问题。</p>
+          </div>
+          <div>
+            <strong>个别隐患 · 单独提醒</strong>
+            <ul v-if="issueDigest.isolated_issues.length">
+              <li v-for="item in issueDigest.isolated_issues" :key="item.dimension">
+                <span>{{ item.label }}</span>
+                <em>{{ item.dorms }} / {{ item.total_dorms }} 个宿舍（{{ item.share }}%）</em>
+                <p>{{ item.advice }}</p>
+              </li>
+            </ul>
+            <p v-else class="digest-empty">这次没有需要单独提醒的隐患。</p>
+          </div>
+        </div>
+        <p class="digest-note">{{ issueDigest.note }}</p>
+      </div>
     </article>
   </section>
 </template>
@@ -2131,6 +2357,262 @@ function getDayOfWeek(dateStr: string) {
   .dormx-bar-value {
     grid-column: 1 / -1;
     justify-self: end;
+  }
+}
+
+/* ==================== 检查反馈 · 典型问题 ==================== */
+.inspect-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.inspect-dorm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #31544f;
+}
+
+.inspect-dorm input {
+  flex: 1 1 auto;
+  max-width: 260px;
+}
+
+.inspect-row {
+  display: grid;
+  grid-template-columns: 64px auto 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.inspect-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #31544f;
+}
+
+.inspect-states {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.inspect-state {
+  padding: 4px 10px;
+  border: 1px solid #d8ded4;
+  border-radius: 999px;
+  background: #fffef8;
+  color: #667572;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+
+.inspect-state:hover {
+  border-color: #397f72;
+}
+
+.inspect-state.active.is-good {
+  border-color: #397f72;
+  background: #dfece5;
+  color: #1f5a4e;
+  font-weight: 700;
+}
+
+.inspect-state.active.is-watch {
+  border-color: #d6a849;
+  background: rgba(214, 168, 73, .16);
+  color: #8a6a3d;
+  font-weight: 700;
+}
+
+.inspect-state.active.is-issue {
+  border-color: #d8614d;
+  background: rgba(216, 97, 77, .14);
+  color: #a2432f;
+  font-weight: 700;
+}
+
+.inspect-note {
+  min-width: 0;
+  font-size: 12px;
+}
+
+.inspect-notice {
+  margin: 0;
+  font-size: 12px;
+  color: #b63d3d;
+}
+
+.inspect-report {
+  margin-top: 16px;
+  padding: 14px 16px 16px;
+  border: 1px solid #d8ded4;
+  border-radius: 14px;
+  background: #fffef8;
+}
+
+.inspect-summary {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.6;
+  color: #172b2a;
+}
+
+.inspect-notes {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inspect-notes li {
+  padding: 9px 11px;
+  border-left: 3px solid #397f72;
+  border-radius: 0 10px 10px 0;
+  background: #f5f4eb;
+}
+
+.inspect-notes li.is-watch {
+  border-left-color: #d6a849;
+}
+
+.inspect-notes li.is-issue {
+  border-left-color: #d8614d;
+  background: #fdf6f4;
+}
+
+.inspect-note-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.inspect-note-head strong {
+  font-size: 13px;
+  color: #172b2a;
+}
+
+.inspect-note-head em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+  color: #667572;
+}
+
+.inspect-obs {
+  margin: 0 0 3px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #4a5f5b;
+}
+
+.inspect-act {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: #1f5a4e;
+}
+
+.inspect-strength,
+.inspect-encourage {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: #667572;
+}
+
+.inspect-digest {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed #d8ded4;
+}
+
+.inspect-digest h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: #172b2a;
+}
+
+.digest-summary {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #31544f;
+}
+
+.digest-columns {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.digest-columns > div {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f5f4eb;
+}
+
+.digest-columns > div > strong {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 12px;
+  color: #31544f;
+}
+
+.digest-columns ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.digest-columns li span {
+  font-size: 13px;
+  font-weight: 700;
+  color: #172b2a;
+}
+
+.digest-columns li em {
+  display: block;
+  margin: 1px 0 3px;
+  font-style: normal;
+  font-size: 11px;
+  color: #667572;
+}
+
+.digest-columns li p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #4a5f5b;
+}
+
+.digest-empty {
+  margin: 0;
+  font-size: 12px;
+  color: #667572;
+}
+
+.digest-note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: #7c8b86;
+}
+
+@media (max-width: 720px) {
+  .inspect-row {
+    grid-template-columns: 1fr;
+    gap: 5px;
   }
 }
 </style>

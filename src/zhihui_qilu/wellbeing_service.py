@@ -439,6 +439,93 @@ class WellbeingService:
         items.sort(key=lambda item: str(item["checked_at"]))
         return items
 
+    async def compose_mood_trend(self, user_id: str) -> dict[str, object]:
+        """看趋势，不只看单次：连续几天走低比某一天暴雨更值得关心。
+
+        单次打卡只能说明当天状态，跨天连起来才是信号。这里按自然日聚合，
+        比较前三天和后三天的平均负面程度，判断是在好转、持平还是走低。
+        窗口受 7 天保留期限制，所以最多看 7 天——不假装能看更远。
+        """
+        items = await self.list_check_ins(user_id, days=7)
+        if not items:
+            return {
+                "days": 0,
+                "checkins": 0,
+                "trend": "none",
+                "trend_label": "还没有记录",
+                "declining_days": 0,
+                "daily": [],
+                "message": "还没有打卡记录。先记一次今天的状态，两三天后就能看出趋势。",
+                "advice": [],
+            }
+
+        # 负面权重：暴雨 2、小雨 1、多云 0.5、晴 0
+        weight = {MoodWeather.STORMY: 2.0, MoodWeather.RAINY: 1.0, MoodWeather.CLOUDY: 0.5, MoodWeather.SUNNY: 0.0}
+        by_day: dict[object, list[float]] = {}
+        for item in items:
+            raw = str(item["checked_at"])
+            try:
+                day = datetime.fromisoformat(raw).astimezone(timezone.utc).date()
+            except ValueError:
+                continue
+            by_day.setdefault(day, []).append(weight.get(item["weather"], 0.0))
+
+        daily = [
+            {"day": day.isoformat(), "score": round(sum(values) / len(values), 2), "checkins": len(values)}
+            for day, values in sorted(by_day.items())
+        ]
+        scores = [item["score"] for item in daily]
+
+        if len(scores) < 2:
+            trend = "stable"
+            trend_label = "还不够判断"
+        else:
+            half = max(1, len(scores) // 2)
+            early = sum(scores[:half]) / half
+            late = sum(scores[-half:]) / half
+            if late - early >= 0.5:
+                trend, trend_label = "declining", "在走低"
+            elif early - late >= 0.5:
+                trend, trend_label = "improving", "在好转"
+            else:
+                trend, trend_label = "stable", "基本持平"
+
+        # 从最近一天往前数，连续「有负面」的天数
+        declining_days = 0
+        for item in reversed(daily):
+            if item["score"] > 0:
+                declining_days += 1
+            else:
+                break
+
+        if trend == "declining":
+            message = f"最近 {declining_days} 天情绪连着往下走，比某一天心情差更值得留意。"
+            advice = [
+                "先别急着分析原因，把睡眠和三餐稳住三天，再看变化。",
+                "找一个人说一句实话，不用是完整的倾诉。",
+                "如果连着一周都这样，约一次谈心比硬扛划算。",
+            ]
+        elif trend == "improving":
+            message = "这几天在往好的方向走，把有用的那件事再做一次。"
+            advice = ["回想一下这两天做了什么不一样的事，写下来。", "好转不是直线，明天差一点也正常。"]
+        elif trend == "stable" and declining_days >= 2:
+            message = f"整体持平，但已经连着 {declining_days} 天有点低，值得提前照顾一下。"
+            advice = ["把今天最耗神的那件事往后挪一天。", "出去走十分钟，不刷手机的那种。"]
+        else:
+            message = "最近几天比较平稳，保持现在的节奏就好。"
+            advice = ["平稳期适合处理拖了很久的小事。", "不用为了「应该开心」而检查自己。"] if len(scores) >= 2 else []
+
+        return {
+            "days": len(daily),
+            "checkins": len(items),
+            "trend": trend,
+            "trend_label": trend_label,
+            "declining_days": declining_days,
+            "daily": daily,
+            "message": message,
+            "advice": advice,
+        }
+
     async def publish_wall_message(self, message: WallMessage) -> WallMessage:
         """Publish a vetted counselor message; its author identity is never exposed to students."""
         self._wall_messages.append(message)

@@ -693,6 +693,30 @@ async function fetchMoodHistory() {
     moodLoading.value = false
     moodLoaded.value = true
   }
+  // 趋势和日历同一份数据，顺手一起取；失败不影响日历本身。
+  void fetchMoodTrend()
+}
+
+/* 趋势：单次打卡只说明当天，连续几天走低才值得提前照顾。 */
+interface MoodTrend {
+  days: number
+  checkins: number
+  trend: string
+  trend_label: string
+  declining_days: number
+  daily: { day: string; score: number; checkins: number }[]
+  message: string
+  advice: string[]
+}
+
+const moodTrend = ref<MoodTrend | null>(null)
+
+async function fetchMoodTrend() {
+  try {
+    moodTrend.value = (await command('wellbeing', 'mood_trend')).data as unknown as MoodTrend
+  } catch {
+    moodTrend.value = null
+  }
 }
 
 // 学生功能
@@ -1461,6 +1485,16 @@ onBeforeUnmount(() => clearBreathTimer())
         <p v-if="!moodLoaded" class="wbx-note">正在读取最近 7 天的心情记录…</p>
         <p v-else-if="moodError" class="wbx-note">趋势暂时读不到：{{ moodError }}</p>
         <template v-else>
+          <!-- 趋势：连续几天走低比某一天暴雨更值得关心 -->
+          <div v-if="moodTrend && moodTrend.trend !== 'none'" class="wbx-trend" :class="`is-${moodTrend.trend}`">
+            <div class="wbx-trend-head">
+              <strong>{{ moodTrend.trend_label }}</strong>
+              <span>{{ moodTrend.message }}</span>
+            </div>
+            <ul v-if="moodTrend.advice.length" class="wbx-trend-advice">
+              <li v-for="(line, index) in moodTrend.advice" :key="index">{{ line }}</li>
+            </ul>
+          </div>
           <div class="wbx-trend-plot">
             <svg viewBox="0 0 320 140" role="img" aria-label="最近 7 天情绪走势折线图">
               <defs>
@@ -1790,6 +1824,65 @@ onBeforeUnmount(() => clearBreathTimer())
 
 <style scoped>
 /* ===== 情绪复盘（原「走势 + 日历」合并） ===== */
+.wbx-trend {
+  margin: 0 0 .9rem;
+  padding: .7rem .85rem;
+  border-left: 3px solid var(--green);
+  border-radius: 0 12px 12px 0;
+  background: #f2f7f2;
+}
+
+.wbx-trend.is-declining {
+  border-left-color: #d8614d;
+  background: #fdf4f1;
+}
+
+.wbx-trend.is-improving {
+  border-left-color: #397f72;
+  background: #eef6f2;
+}
+
+.wbx-trend-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .45rem;
+}
+
+.wbx-trend-head strong {
+  flex: 0 0 auto;
+  padding: .05rem .5rem;
+  border-radius: 999px;
+  background: rgba(57, 127, 114, .14);
+  color: #2f6b60;
+  font-size: .72rem;
+  font-weight: 750;
+}
+
+.wbx-trend.is-declining .wbx-trend-head strong {
+  background: rgba(216, 97, 77, .16);
+  color: #a2432f;
+}
+
+.wbx-trend-head span {
+  flex: 1 1 220px;
+  color: #31544f;
+  font-size: .82rem;
+  line-height: 1.65;
+}
+
+.wbx-trend-advice {
+  display: grid;
+  gap: .2rem;
+  margin: .45rem 0 0;
+  padding-left: 1.05rem;
+}
+
+.wbx-trend-advice li {
+  color: #4d625f;
+  font-size: .78rem;
+  line-height: 1.6;
+}
 .wbx-review-card { margin-top: 20px; padding: 22px; background: var(--paper); border-radius: 20px; box-shadow: var(--shadow); }
 .wbx-card-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .wbx-card-head > div { display: flex; align-items: center; gap: .5rem; min-width: 0; }
