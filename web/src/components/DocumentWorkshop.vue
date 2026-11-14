@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { PhFileText, PhDownload, PhEye, PhCopy, PhTrash } from '@phosphor-icons/vue'
+import {
+  PhFileText, PhDownload, PhEye, PhCopy, PhTrash, PhSparkle, PhMagicWand,
+  PhBookmarkSimple, PhClock, PhQuotes, PhListChecks, PhArrowRight, PhPlus,
+} from '@phosphor-icons/vue'
 import { command, requestJson } from '../api'
 
 interface DocumentElements {
@@ -32,13 +35,66 @@ interface Banner {
   usage: string
 }
 
-const activeTab = ref<'templates' | 'editor' | 'preview' | 'format'>('templates')
+/* 起草助手语料。与模板库同源放在后端（/api/v1/documents/phrases）：
+   文种 id 必须和 TEMPLATE_CATALOG 对得上，两处各写一份迟早会走样。 */
+interface PhraseItem { id: string, slot: string, text: string }
+interface PhraseGroup { id: string, label: string, hint: string, items: PhraseItem[] }
+interface GenreRow {
+  id: string
+  name: string
+  template_id: string
+  direction: string
+  reply: string
+  when: string
+  closing: string
+  sign: string
+}
+interface GenreContrast { pair: string, verdict: string, items: string[] }
+interface DeadlineRule { id: string, label: string, workdays: number, note: string }
+
+/* 草稿本与导出记录只存本机 localStorage：这是浏览器里的草稿，不是已交付的文件。 */
+interface SavedDraft {
+  id: string
+  title: string
+  docType: string
+  docTypeName: string
+  draft: string
+  savedAt: string
+  chars: number
+}
+interface ExportRecord { id: string, title: string, docTypeName: string, at: string }
+
+const DRAFT_STORE = 'zhq-doc-drafts-v1'
+const EXPORT_STORE = 'zhq-doc-exports-v1'
+
+/* 一句话成稿的示例，覆盖校内最高频的三类场景 */
+const BRIEF_EXAMPLES = [
+  '下周三下午两点组织全院消防疏散演练，各年级辅导员和班长必须参加',
+  '申请采购10台图形工作站用于人工智能实验教学，经费80万元',
+  '2026届毕业生就业工作情况，需向省教育厅汇报',
+]
+
+const activeTab = ref<'templates' | 'assist' | 'editor' | 'preview' | 'format' | 'library'>('templates')
 const draft = ref('')
 const elements = ref<DocumentElements | null>(null)
 const message = ref('')
 const loading = ref(false)
 const selectedTemplate = ref('')
-const documentHistory = ref<Array<{ name: string, date: string, type: string }>>([])
+
+/* 起草助手 */
+const brief = ref('')
+const drafting = ref(false)
+const draftSource = ref<'' | 'deepseek' | 'local'>('')
+const phraseGroups = ref<PhraseGroup[]>([])
+const genres = ref<GenreRow[]>([])
+const contrasts = ref<GenreContrast[]>([])
+const deadlineRules = ref<DeadlineRule[]>([])
+const activePhraseGroup = ref('opening')
+
+/* 草稿本 */
+const savedDrafts = ref<SavedDraft[]>([])
+const exportRecords = ref<ExportRecord[]>([])
+const draftEl = ref<HTMLTextAreaElement | null>(null)
 
 // 模板库与版头由后端提供（唯一数据源），前端不再硬编码骨架文本。
 const templates = ref<DocTemplate[]>([])
@@ -155,12 +211,7 @@ async function exportDocx() {
       a.click()
       URL.revokeObjectURL(url)
       message.value = `已按《山东师范大学行政文件格式细则》导出「${currentTemplate.value?.name ?? '公文'}」DOCX`
-
-      documentHistory.value.unshift({
-        name: elements.value.title || '未命名文档',
-        date: new Date().toLocaleString('zh-CN'),
-        type: `${currentTemplate.value?.name ?? '公文'} · DOCX`,
-      })
+      recordExport(elements.value.title || '未命名文档')
     } else {
       message.value = '导出失败'
     }
@@ -182,6 +233,201 @@ function copyDraft() {
   message.value = '已复制到剪贴板'
 }
 
+/* ---------- 起草助手 ---------- */
+async function loadPhrases() {
+  try {
+    const data = await requestJson<{
+      success: boolean
+      data: { groups: PhraseGroup[], genres: GenreRow[], contrasts: GenreContrast[], deadlines: DeadlineRule[] }
+    }>('/api/v1/documents/phrases', {}, '句式库加载失败')
+    if (data.success) {
+      phraseGroups.value = data.data.groups
+      genres.value = data.data.genres
+      contrasts.value = data.data.contrasts
+      deadlineRules.value = data.data.deadlines
+      if (data.data.groups.length && !data.data.groups.some((item) => item.id === activePhraseGroup.value)) {
+        activePhraseGroup.value = data.data.groups[0].id
+      }
+    }
+  } catch (reason) {
+    message.value = reason instanceof Error ? reason.message : '句式库加载失败'
+  }
+}
+
+const currentPhraseGroup = computed(
+  () => phraseGroups.value.find((item) => item.id === activePhraseGroup.value) ?? phraseGroups.value[0] ?? null,
+)
+const phraseCount = computed(() => phraseGroups.value.reduce((sum, group) => sum + group.items.length, 0))
+
+/** 一句话成稿。生成后直接落到「文档编辑」，用户接着改字而不是从零写。 */
+async function composeDraft() {
+  const briefText = brief.value.trim()
+  if (!briefText) {
+    message.value = '先写一句需求，例如「下周三组织消防演练，各班班长参加」'
+    return
+  }
+  drafting.value = true
+  message.value = ''
+  try {
+    const result = await command('document_engine', 'compose_draft', briefText, { doc_type: docType.value })
+    const data = result.data as { draft: string, source: string }
+    draft.value = data.draft
+    draftSource.value = data.source === 'deepseek' ? 'deepseek' : 'local'
+    elements.value = null
+    selectedTemplate.value = docType.value
+    message.value = result.message
+    activeTab.value = 'editor'
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '起草失败'
+  } finally {
+    drafting.value = false
+  }
+}
+
+/** 切换文种但不覆盖已有草稿：只改文种与版头，让用户自己决定要不要重写。 */
+function useGenre(row: GenreRow) {
+  docType.value = row.template_id
+  const template = templates.value.find((item) => item.id === row.template_id)
+  if (template) {
+    const banner = banners.value.find((item) => item.id === template.banner)
+    bannerName.value = banner?.name ?? bannerName.value
+  }
+  message.value = `已切换到「${row.name}」（${row.direction}·${row.reply}）：${row.when}`
+}
+
+/** 把句式插到正文光标处，而不是覆盖已有内容。 */
+function insertPhrase(text: string) {
+  const el = draftEl.value
+  const current = draft.value
+  if (!el) {
+    draft.value = current ? `${current}\n${text}` : text
+    message.value = `已插入：${text.slice(0, 20)}${text.length > 20 ? '…' : ''}`
+    return
+  }
+  const start = el.selectionStart ?? current.length
+  const end = el.selectionEnd ?? current.length
+  const before = current.slice(0, start)
+  const after = current.slice(end)
+  const pad = before && !before.endsWith('\n') ? '\n' : ''
+  draft.value = `${before}${pad}${text}${after}`
+  const caret = before.length + pad.length + text.length
+  void nextTick(() => {
+    el.focus()
+    el.setSelectionRange(caret, caret)
+  })
+  message.value = `已插入到正文：${text.slice(0, 20)}${text.length > 20 ? '…' : ''}`
+}
+
+/* ---------- 草稿本与导出记录 ----------
+   只写本机 localStorage：这是浏览器里的草稿，换设备看不到，
+   真正交付还是导出 DOCX。不写后端是为了不把未定稿的公文留在服务器上。 */
+function readStore<T>(key: string): T[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? '[]')
+    return Array.isArray(parsed) ? parsed as T[] : []
+  } catch {
+    return []
+  }
+}
+
+function writeStore(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // 隐私模式下写不进去，不影响当前会话
+  }
+}
+
+function loadLibrary() {
+  savedDrafts.value = readStore<SavedDraft>(DRAFT_STORE)
+  exportRecords.value = readStore<ExportRecord>(EXPORT_STORE)
+}
+
+function fmtWhen(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+function saveDraft() {
+  const text = draft.value.trim()
+  if (!text) {
+    message.value = '草稿是空的，没什么可存的'
+    return
+  }
+  const title = previewTitle() || '未命名文档'
+  const item: SavedDraft = {
+    id: `d-${Date.now()}`,
+    title,
+    docType: docType.value,
+    docTypeName: currentTemplate.value?.name ?? '公文',
+    draft: draft.value,
+    savedAt: new Date().toISOString(),
+    chars: previewBody().length,
+  }
+  // 同标题同文种视为覆盖，避免存出一堆重复条目
+  savedDrafts.value = [
+    item,
+    ...savedDrafts.value.filter((entry) => !(entry.title === title && entry.docType === docType.value)),
+  ].slice(0, 30)
+  writeStore(DRAFT_STORE, savedDrafts.value)
+  message.value = `已存入草稿本：${title}（${item.chars} 字）`
+}
+
+function openSaved(item: SavedDraft) {
+  draft.value = item.draft
+  docType.value = item.docType
+  const template = templates.value.find((entry) => entry.id === item.docType)
+  if (template) {
+    const banner = banners.value.find((entry) => entry.id === template.banner)
+    bannerName.value = banner?.name ?? bannerName.value
+    recipient.value = template.recipient
+  }
+  elements.value = null
+  activeTab.value = 'editor'
+  message.value = `已打开草稿：${item.title}`
+}
+
+function removeSaved(id: string) {
+  const target = savedDrafts.value.find((entry) => entry.id === id)
+  savedDrafts.value = savedDrafts.value.filter((entry) => entry.id !== id)
+  writeStore(DRAFT_STORE, savedDrafts.value)
+  message.value = target ? `已删除草稿：${target.title}` : '已删除'
+}
+
+function recordExport(title: string) {
+  const record: ExportRecord = {
+    id: `e-${Date.now()}`,
+    title,
+    docTypeName: currentTemplate.value?.name ?? '公文',
+    at: new Date().toISOString(),
+  }
+  exportRecords.value = [record, ...exportRecords.value].slice(0, 20)
+  writeStore(EXPORT_STORE, exportRecords.value)
+}
+
+function clearExports() {
+  exportRecords.value = []
+  writeStore(EXPORT_STORE, exportRecords.value)
+  message.value = '已清空导出记录'
+}
+
+/* 细则：特急件 1 个工作日、急件 2 个工作日、正常件 5 个工作日。
+   只跳周末，不算法定节假日——真要用还得查校历，界面上如实说明。 */
+const deadlineInfo = computed(() => {
+  const rule = deadlineRules.value.find((item) => item.label === urgency.value)
+  if (!rule) return null
+  const day = new Date()
+  let left = rule.workdays
+  while (left > 0) {
+    day.setDate(day.getDate() + 1)
+    const weekday = day.getDay()
+    if (weekday !== 0 && weekday !== 6) left -= 1
+  }
+  const stamp = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
+  return { label: rule.label, workdays: rule.workdays, date: stamp, note: rule.note }
+})
+
 /* ---------- 格式校验 ---------- */
 interface FormatCheck {
   ok: boolean
@@ -189,10 +435,24 @@ interface FormatCheck {
   detail: string
   /** error 表示细则硬性要求，warn 表示提醒 */
   level: 'error' | 'warn'
+  /** 按细则的章节归组，避免一次甩出十几条让人无从下手 */
+  group: 'title' | 'head' | 'body' | 'sign' | 'register'
 }
+
+const CHECK_GROUPS = [
+  { id: 'title', label: '标题与文种' },
+  { id: 'head', label: '版头与主送' },
+  { id: 'body', label: '正文与附件' },
+  { id: 'sign', label: '落款与成文日期' },
+  { id: 'register', label: '版记与时限' },
+] as const
 
 const formatChecks = ref<FormatCheck[]>([])
 const formatChecked = ref(false)
+const groupedChecks = computed(() => CHECK_GROUPS
+  .map((group) => ({ ...group, items: formatChecks.value.filter((item) => item.group === group.id) }))
+  .filter((group) => group.items.length > 0))
+const errorCount = computed(() => formatChecks.value.filter((item) => !item.ok && item.level === 'error').length)
 
 /** 汉字成文日期，如「二○二六年十一月十三日」。细则第三十四条要求汉字标全。 */
 const CHINESE_DATE = /^[〇零○一二三四五六七八九]{4}年[一二三四五六七八九十]{1,2}月[一二三四五六七八九十]{1,3}日$/
@@ -255,8 +515,8 @@ function parseLabeledDraft(text: string): ParsedDraft {
     }
     if (inAttach) {
       const cont = line.trim()
-      // 续行必须是缩进的条目编号，否则附件块结束
-      if (cont && ATTACH_ITEM.test(cont) && /^\s/.test(line)) { attaches.push(cont); continue }
+      // 续行是条目编号即算附件，缩进与否都收：细则要求对齐，但手打和模型输出经常顶格
+      if (cont && ATTACH_ITEM.test(cont)) { attaches.push(cont); continue }
       inAttach = false
     }
     if (!stopped && inBody) body.push(line)
@@ -278,14 +538,36 @@ function previewBody(): string {
   return (elements.value?.body || parseLabeledDraft(draft.value).body || draft.value).trim()
 }
 
+/* 版式要素一律「后端解析结果优先，本地镜像兜底」：
+   没点「解析草稿」之前，校验和 A4 预览也得能用。 */
+function previewReference(): string {
+  return (elements.value?.reference_number || parseLabeledDraft(draft.value).reference_number || '').trim()
+}
+
+function previewSignature(): string {
+  return (elements.value?.signature || parseLabeledDraft(draft.value).signature || '').trim()
+}
+
+function previewDate(): string {
+  return (elements.value?.issue_date || parseLabeledDraft(draft.value).issue_date || '').trim()
+}
+
+/** 正文实际字数，用于「够不够一份像样的公文」和 A4 页数估算 */
+const bodyChars = computed(() => previewBody().length)
+
 function checkFormat() {
   const title = previewTitle()
   const bodyText = previewBody()
-  const dateText = (elements.value?.issue_date ?? '').trim()
+  const dateText = previewDate()
+  const reference = previewReference()
+  const signature = previewSignature()
   const rc = recipient.value.trim()
   const att = attachments.value.trim()
+  const keywordList = splitList(keywords.value)
+  const ccList = splitList(cc.value)
   const checks: FormatCheck[] = []
 
+  /* 标题与文种 */
   checks.push({
     ok: title.includes('山东师范大学'),
     name: '标题标明发文机关',
@@ -293,8 +575,26 @@ function checkFormat() {
       ? '已包含「山东师范大学」'
       : '细则要求标题一般应标明发文机关，如「山东师范大学关于……的通知」',
     level: 'warn',
+    group: 'title',
   })
 
+  checks.push({
+    ok: title.length > 0 && title.length <= 40,
+    name: '标题不超过 40 字',
+    detail: title.length === 0 ? '标题为空' : `当前 ${title.length} 字${title.length > 40 ? '，建议精简' : ''}`,
+    level: title.length > 40 ? 'error' : 'warn',
+    group: 'title',
+  })
+
+  checks.push({
+    ok: !/[。；;]$/.test(title),
+    name: '标题结尾不加句号',
+    detail: /[。；;]$/.test(title) ? '公文标题是一个名词性短语，结尾不加标点' : '格式正确',
+    level: 'error',
+    group: 'title',
+  })
+
+  /* 版头与主送 */
   checks.push({
     ok: !rc || /[：:]$/.test(rc),
     name: '主送机关以冒号收尾',
@@ -304,33 +604,60 @@ function checkFormat() {
         ? '格式正确'
         : '主送机关应以全角冒号「：」结尾，且顶格书写',
     level: rc ? 'error' : 'warn',
+    group: 'head',
   })
 
+  checks.push({
+    ok: !reference || /〔\d{4}〕/.test(reference),
+    name: '发文字号用六角括号',
+    detail: !reference
+      ? '未填发文字号'
+      : /〔\d{4}〕/.test(reference)
+        ? '格式正确'
+        : '应形如「山东师大校字〔2026〕15号」，年份用六角括号〔〕，不用[]、()、［］',
+    level: reference ? 'error' : 'warn',
+    group: 'head',
+  })
+
+  checks.push({
+    ok: !(docType.value === 'request' || docType.value === 'report') || Boolean(signer.value.trim()),
+    name: '上行文标注签发人',
+    detail: docType.value === 'request' || docType.value === 'report'
+      ? (signer.value.trim() ? `已填签发人：${signer.value.trim()}` : '请示、报告等上报文件应当在文号右侧标注签发人')
+      : '当前文种无需签发人',
+    level: docType.value === 'request' || docType.value === 'report' ? 'error' : 'warn',
+    group: 'head',
+  })
+
+  /* 正文与附件 */
   checks.push({
     ok: bodyText.length >= 50,
     name: '正文不少于 50 字',
     detail: bodyText.length === 0 ? '正文为空' : `当前 ${bodyText.length} 字`,
     level: 'warn',
+    group: 'body',
   })
 
+  const halfWidth = /\([一二三四五六七八九十]+\)/.test(bodyText) || /^\s*\d\.[^\d]/m.test(bodyText)
   checks.push({
-    ok: CHINESE_DATE.test(dateText),
-    name: '成文日期用汉字标全',
-    detail: !dateText
-      ? '未填成文日期'
-      : CHINESE_DATE.test(dateText)
-        ? '格式正确'
-        : DIGIT_DATE.test(dateText)
-          ? '用了阿拉伯数字，细则要求写成「二○二六年十一月十三日」'
-          : '日期格式无法识别，应形如「二○二六年十一月十三日」',
-    level: dateText ? 'error' : 'warn',
+    ok: !halfWidth,
+    name: '层次序数用全角符号',
+    detail: halfWidth
+      ? '检测到半角「(一)」或「1.」，细则要求写成「（一）」「1．」'
+      : '一级「一、」、二级「（一）」、三级「1．」均为全角',
+    level: 'error',
+    group: 'body',
   })
 
+  const trailingPunct = /^[一二三四五六七八九十]+、[^\n]*[。，；]$/m.test(bodyText)
   checks.push({
-    ok: title.length > 0 && title.length <= 40,
-    name: '标题不超过 40 字',
-    detail: title.length === 0 ? '标题为空' : `当前 ${title.length} 字${title.length > 40 ? '，建议精简' : ''}`,
-    level: title.length > 40 ? 'error' : 'warn',
+    ok: !trailingPunct,
+    name: '一级标题句尾不加标点',
+    detail: trailingPunct
+      ? '「一、」这类一级标题是标题不是句子，句尾不加句号、逗号、分号'
+      : '未发现带标点的一级标题',
+    level: 'warn',
+    group: 'body',
   })
 
   checks.push({
@@ -342,14 +669,91 @@ function checkFormat() {
         ? '正文已提及附件'
         : '填了附件说明，但正文没有出现「附件」字样',
     level: 'warn',
+    group: 'body',
+  })
+
+  // 起草助手和模板都用「×」占位：交出去之前必须补实，否则对方收到的是一份没写完的公文
+  const placeholderHits = (draft.value.match(/×/g) ?? []).length
+  checks.push({
+    ok: placeholderHits === 0,
+    name: '占位符已补实',
+    detail: placeholderHits === 0
+      ? '没有残留的 × 占位符'
+      : `还有 ${placeholderHits} 处 × 没填实（时间、地点、人名、电话、金额等），导出前逐一替换`,
+    level: 'warn',
+    group: 'body',
+  })
+
+  /* 落款与成文日期 */
+  checks.push({
+    ok: CHINESE_DATE.test(dateText),
+    name: '成文日期用汉字标全',
+    detail: !dateText
+      ? '未填成文日期'
+      : CHINESE_DATE.test(dateText)
+        ? '格式正确'
+        : dateText.includes('×')
+          ? '日期里还有 × 没填实，补齐成「二○二六年十一月十三日」这种形式'
+          : DIGIT_DATE.test(dateText)
+            ? '用了阿拉伯数字，细则要求写成「二○二六年十一月十三日」'
+            : '日期格式无法识别，应形如「二○二六年十一月十三日」',
+    level: dateText ? 'error' : 'warn',
+    group: 'sign',
+  })
+
+  checks.push({
+    ok: Boolean(signature),
+    name: '落款单位已填写',
+    detail: signature || '未填落款；印章盖在成文时间中间上方，没有落款就没法盖章',
+    level: signature ? 'warn' : 'error',
+    group: 'sign',
+  })
+
+  const closings = ['特此通知', '特此公告', '特此报告', '特此通报', '请批示', '请批复', '请遵照执行', '此复', '请予支持']
+  const hasClosing = closings.some((item) => bodyText.includes(item))
+  checks.push({
+    ok: hasClosing,
+    name: '正文有结束语',
+    detail: hasClosing ? '已包含规范结束语' : `结尾建议补一句：${currentTemplate.value?.closing || '特此通知。'}`,
+    level: 'warn',
+    group: 'sign',
+  })
+
+  /* 版记与时限 */
+  checks.push({
+    ok: keywordList.length <= 5,
+    name: '主题词不超过 5 个',
+    detail: keywordList.length === 0
+      ? '未填主题词'
+      : `当前 ${keywordList.length} 个${keywordList.length > 5 ? '，超出细则上限' : ''}`,
+    level: keywordList.length > 5 ? 'error' : 'warn',
+    group: 'register',
+  })
+
+  checks.push({
+    ok: Boolean(printAgency.value.trim()),
+    name: '印发机关已填写',
+    detail: printAgency.value.trim() || '版记最后一栏需要印发机关与印发日期',
+    level: printAgency.value.trim() ? 'warn' : 'error',
+    group: 'register',
+  })
+
+  const overlap = ccList.filter((item) => keywordList.includes(item))
+  checks.push({
+    ok: overlap.length === 0,
+    name: '抄送不与主题词重复',
+    detail: overlap.length === 0 ? '未发现重复' : `重复项：${overlap.join('、')}`,
+    level: 'warn',
+    group: 'register',
   })
 
   formatChecks.value = checks
   formatChecked.value = true
   const failed = checks.filter((item) => !item.ok).length
+  const hard = checks.filter((item) => !item.ok && item.level === 'error').length
   message.value = failed === 0
-    ? '格式检查全部通过，可以导出 DOCX'
-    : `格式检查：${checks.length - failed} 项通过，${failed} 项待改`
+    ? `格式检查：${checks.length} 项全部通过，可以导出 DOCX`
+    : `格式检查：${checks.length - failed} 项通过，${failed} 项待改${hard ? `（其中 ${hard} 项是细则硬性要求）` : ''}`
 }
 
 /* ---------- A4 预览 ---------- */
@@ -413,7 +817,11 @@ const a4 = computed(() => {
 watch([activeTab, a4Zoom], () => { void bindA4() })
 watch(a4, () => { void nextTick(measureA4) }, { deep: true })
 
-onMounted(() => { loadTemplates() })
+onMounted(() => {
+  loadTemplates()
+  void loadPhrases()
+  loadLibrary()
+})
 </script>
 
 <template>
@@ -430,6 +838,9 @@ onMounted(() => { loadTemplates() })
       <button :class="{ active: activeTab === 'templates' }" @click="activeTab = 'templates'">
         <PhCopy :size="16" /> 文种模板（{{ templates.length }}）
       </button>
+      <button :class="{ active: activeTab === 'assist' }" @click="activeTab = 'assist'">
+        <PhSparkle :size="16" /> 起草助手
+      </button>
       <button :class="{ active: activeTab === 'editor' }" @click="activeTab = 'editor'">
         <PhFileText :size="16" /> 文档编辑
       </button>
@@ -437,7 +848,10 @@ onMounted(() => { loadTemplates() })
         <PhEye :size="16" /> A4 预览
       </button>
       <button :class="{ active: activeTab === 'format' }" @click="activeTab = 'format'">
-        <PhCopy :size="16" /> 格式细则
+        <PhListChecks :size="16" /> 格式细则
+      </button>
+      <button :class="{ active: activeTab === 'library' }" @click="activeTab = 'library'">
+        <PhBookmarkSimple :size="16" /> 我的草稿（{{ savedDrafts.length }}）
       </button>
     </div>
 
@@ -491,6 +905,187 @@ onMounted(() => { loadTemplates() })
       </article>
     </div>
 
+    <!-- 起草助手：一句话成稿 + 文种选择 + 易混对照 + 句式库 -->
+    <div v-if="activeTab === 'assist'" class="dw-assist">
+      <p v-if="message" class="dw-status">{{ message }}</p>
+      <article class="dw-assist-card dw-brief-card">
+        <header class="dw-assist-head">
+          <div>
+            <p class="micro">01 / 一句话成稿</p>
+            <strong>把口语需求写成合规草稿</strong>
+            <small>说清「做什么、谁参加、什么时候」，其余按细则补齐，具体信息留成 ×× 由你填</small>
+          </div>
+          <PhMagicWand :size="22" />
+        </header>
+
+        <textarea
+          v-model="brief"
+          class="dw-brief-input"
+          rows="3"
+          placeholder="例如：下周三下午两点组织全院消防疏散演练，各年级辅导员和班长必须参加"
+        />
+
+        <div class="dw-brief-examples">
+          <span>试试：</span>
+          <button v-for="item in BRIEF_EXAMPLES" :key="item" type="button" @click="brief = item">{{ item }}</button>
+        </div>
+
+        <footer class="dw-brief-foot">
+          <label class="dw-brief-genre">文种
+            <select v-model="docType">
+              <option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option>
+            </select>
+          </label>
+          <button class="ink-button primary" type="button" :disabled="drafting || !brief.trim()" @click="composeDraft">
+            <PhSparkle :size="16" /> {{ drafting ? '起草中…' : '生成草稿' }}
+          </button>
+        </footer>
+
+        <p class="dw-brief-note">
+          生成后自动进入「文档编辑」，可继续改字、检查格式、导出 DOCX。
+          <span v-if="draftSource === 'deepseek'" class="dw-src is-live">上次由大模型起草</span>
+          <span v-else-if="draftSource === 'local'" class="dw-src">上次为本地骨架（模型不可用）</span>
+        </p>
+      </article>
+
+      <article class="dw-assist-card">
+        <header class="dw-assist-head">
+          <div>
+            <p class="micro">02 / 该用哪个文种</p>
+            <strong>先看行文方向，再看要不要答复</strong>
+            <small>选错文种是公文被退办的第一大原因</small>
+          </div>
+        </header>
+        <ul class="dw-genre-list">
+          <li v-for="row in genres" :key="row.id" :class="{ chosen: docType === row.template_id }">
+            <div class="dw-genre-main">
+              <strong>{{ row.name }}</strong>
+              <span class="dw-genre-tag">{{ row.direction }}</span>
+              <span class="dw-genre-tag" :class="{ ask: row.reply.includes('必须') }">{{ row.reply }}</span>
+            </div>
+            <p>{{ row.when }}</p>
+            <small>{{ row.sign }}</small>
+            <div class="dw-genre-foot">
+              <span>结束语：{{ row.closing }}</span>
+              <button type="button" @click="useGenre(row)">
+                {{ docType === row.template_id ? '当前文种' : '用这个文种' }}
+                <PhArrowRight :size="14" />
+              </button>
+            </div>
+          </li>
+        </ul>
+      </article>
+
+      <article class="dw-assist-card">
+        <header class="dw-assist-head">
+          <div>
+            <p class="micro">03 / 易混文种对照</p>
+            <strong>四组最容易写错的</strong>
+            <small>每组的差别只有一句话，记住这一句就够了</small>
+          </div>
+        </header>
+        <div class="dw-contrast-grid">
+          <section v-for="row in contrasts" :key="row.pair">
+            <h4>{{ row.pair }}<small>{{ row.verdict }}</small></h4>
+            <ul>
+              <li v-for="line in row.items" :key="line">{{ line }}</li>
+            </ul>
+          </section>
+        </div>
+      </article>
+
+      <article class="dw-assist-card">
+        <header class="dw-assist-head">
+          <div>
+            <p class="micro">04 / 句式库</p>
+            <strong>点一下插到正文光标处</strong>
+            <small>{{ phraseCount }} 条常用表达，按在公文里的位置分组，不覆盖你已写的内容</small>
+          </div>
+          <PhQuotes :size="22" />
+        </header>
+        <div class="dw-phrase-tabs">
+          <button
+            v-for="group in phraseGroups"
+            :key="group.id"
+            type="button"
+            :class="{ active: activePhraseGroup === group.id }"
+            @click="activePhraseGroup = group.id"
+          >
+            {{ group.label }}
+          </button>
+        </div>
+        <p v-if="currentPhraseGroup" class="dw-phrase-hint">{{ currentPhraseGroup.hint }}</p>
+        <ul class="dw-phrase-list">
+          <li v-for="item in currentPhraseGroup?.items ?? []" :key="item.id">
+            <button type="button" @click="insertPhrase(item.text)">
+              <span class="dw-phrase-text">{{ item.text }}</span>
+              <span class="dw-phrase-slot">{{ item.slot }}</span>
+              <PhPlus :size="14" />
+            </button>
+          </li>
+        </ul>
+        <p class="dw-phrase-tip">
+          插入的句子是占位模板，记得把「……」换成你自己的内容；「×」是细则里的占位符，导出前要补实。
+        </p>
+      </article>
+    </div>
+
+    <!-- 我的草稿：草稿本 + 导出记录 -->
+    <div v-if="activeTab === 'library'" class="dw-library">
+      <p v-if="message" class="dw-status">{{ message }}</p>
+      <article class="dw-lib-card">
+        <header class="dw-lib-head">
+          <div>
+            <p class="micro">草稿本</p>
+            <strong>{{ savedDrafts.length }} 份</strong>
+            <small>存在本机浏览器，换设备看不到；导出 DOCX 才算真正交付</small>
+          </div>
+          <button class="ink-button" type="button" :disabled="!draft.trim()" @click="saveDraft">
+            <PhPlus :size="16" /> 存当前草稿
+          </button>
+        </header>
+        <ul v-if="savedDrafts.length" class="dw-lib-list">
+          <li v-for="item in savedDrafts" :key="item.id">
+            <div class="dw-lib-main">
+              <strong>{{ item.title }}</strong>
+              <small>{{ item.docTypeName }} · {{ item.chars }} 字 · {{ fmtWhen(item.savedAt) }}</small>
+            </div>
+            <div class="dw-lib-actions">
+              <button type="button" @click="openSaved(item)">打开</button>
+              <button type="button" class="danger" @click="removeSaved(item.id)">删除</button>
+            </div>
+          </li>
+        </ul>
+        <p v-else class="dw-lib-empty">
+          还没存过草稿。在「文档编辑」里写好后点「存草稿」，或点右上角「存当前草稿」。
+        </p>
+      </article>
+
+      <article class="dw-lib-card">
+        <header class="dw-lib-head">
+          <div>
+            <p class="micro">导出记录</p>
+            <strong>{{ exportRecords.length }} 次</strong>
+            <small>只记录本机导出过的文件名与文种，不保存文件内容</small>
+          </div>
+          <button class="ink-button" type="button" :disabled="!exportRecords.length" @click="clearExports">
+            清空记录
+          </button>
+        </header>
+        <ul v-if="exportRecords.length" class="dw-lib-list">
+          <li v-for="item in exportRecords" :key="item.id">
+            <div class="dw-lib-main">
+              <strong>{{ item.title }}.docx</strong>
+              <small>{{ item.docTypeName }} · {{ fmtWhen(item.at) }}</small>
+            </div>
+          </li>
+        </ul>
+        <p v-else class="dw-lib-empty">
+          还没导出过。在「文档编辑」里解析草稿后点「导出 DOCX」。
+        </p>
+      </article>
+    </div>
+
     <!-- 文档编辑 -->
     <div v-if="activeTab === 'editor'" class="document-grid">
       <article class="draft-card">
@@ -529,16 +1124,34 @@ onMounted(() => { loadTemplates() })
           <label>印发机关<input v-model="printAgency"></label>
         </div>
 
-        <textarea v-model="draft" class="document-draft" placeholder="输入公文内容，或用上方「文种模板」载入骨架…"></textarea>
+        <p v-if="deadlineInfo" class="dw-deadline">
+          <PhClock :size="14" />
+          {{ deadlineInfo.label }}件按细则须 {{ deadlineInfo.workdays }} 个工作日内报送，最晚
+          <strong>{{ deadlineInfo.date }}</strong>。{{ deadlineInfo.note }}（只跳周末，未计法定节假日）
+        </p>
+
+        <textarea
+          ref="draftEl"
+          v-model="draft"
+          class="document-draft"
+          placeholder="输入公文内容，或用上方「文种模板」载入骨架，也可以在「起草助手」里一句话生成…"
+        ></textarea>
         <div class="card-footer">
           <button class="ink-button" :disabled="loading || !draft.trim()" @click="parseDraft">
             {{ loading ? '解析中...' : '解析草稿' }}
+          </button>
+          <button class="ink-button" :disabled="!draft.trim()" @click="saveDraft">
+            <PhBookmarkSimple :size="16" /> 存草稿
           </button>
           <button class="ink-button primary" :disabled="loading || !elements" @click="exportDocx">
             <PhDownload :size="16" /> 导出 DOCX
           </button>
         </div>
-        <p class="form-hint">{{ message || '选择文种与版头后解析草稿，导出的 DOCX 会带上版头红线、版记与页码' }}</p>
+        <p class="form-hint">
+          {{ message || '选择文种与版头后解析草稿，导出的 DOCX 会带上版头红线、版记与页码' }}
+          <span v-if="draftSource === 'deepseek'" class="dw-src is-live">大模型起草</span>
+          <span v-else-if="draftSource === 'local'" class="dw-src">本地骨架</span>
+        </p>
       </article>
 
       <article class="preview-card">
@@ -587,21 +1200,29 @@ onMounted(() => { loadTemplates() })
       <div v-if="formatChecked" class="dw-check-body">
         <p class="dw-check-summary" :class="{ pass: formatChecks.every((item) => item.ok) }">
           {{ formatChecks.every((item) => item.ok)
-            ? `6 项检查全部通过`
-            : `${formatChecks.filter((item) => item.ok).length} / ${formatChecks.length} 项通过` }}
+            ? `${formatChecks.length} 项检查全部通过`
+            : `${formatChecks.filter((item) => item.ok).length} / ${formatChecks.length} 项通过${errorCount ? `，其中 ${errorCount} 项是细则硬性要求` : ''}` }}
         </p>
-        <ul class="dw-check-list">
-          <li v-for="item in formatChecks" :key="item.name" :class="[item.ok ? 'is-ok' : 'is-bad', item.level]">
-            <span class="dw-check-mark">{{ item.ok ? '✓' : (item.level === 'error' ? '✕' : '!') }}</span>
-            <div>
-              <strong>{{ item.name }}</strong>
-              <p>{{ item.detail }}</p>
-            </div>
-          </li>
-        </ul>
+        <section v-for="group in groupedChecks" :key="group.id" class="dw-check-group">
+          <h4>{{ group.label }}</h4>
+          <ul class="dw-check-list">
+            <li v-for="item in group.items" :key="item.name" :class="[item.ok ? 'is-ok' : 'is-bad', item.level]">
+              <span class="dw-check-mark">{{ item.ok ? '✓' : (item.level === 'error' ? '✕' : '!') }}</span>
+              <div>
+                <strong>{{ item.name }}</strong>
+                <p>{{ item.detail }}</p>
+              </div>
+            </li>
+          </ul>
+        </section>
       </div>
       <p v-else class="dw-check-idle">
-        填好标题、正文与落款后点「检查格式」，会逐条列出通过项和待改项。
+        填好标题、正文与落款后点「检查格式」，会按标题、版头、正文、落款、版记五组逐条列出通过项和待改项。
+      </p>
+
+      <p class="dw-check-note">
+        报送时限：特急件 1 个工作日、急件 2 个工作日、正常件 5 个工作日；一般公文需提前 3 天报送。
+        特急、急件须经校领导批准后标注，不得自行确定。
       </p>
     </section>
 
@@ -613,6 +1234,7 @@ onMounted(() => { loadTemplates() })
           <small>210 × 297 mm，左侧装订，正文 3 号仿宋</small>
         </div>
         <div class="dw-a4-toolbar-right">
+          <span class="dw-a4-chip">{{ bodyChars }} 字</span>
           <span class="dw-a4-chip" :class="{ 'is-over': a4Pages > 1 }">
             {{ a4Pages > 1 ? `约 ${a4Pages} 页` : '1 页' }}
           </span>
@@ -806,6 +1428,15 @@ onMounted(() => { loadTemplates() })
   font-size: 12.5px;
 }
 
+.dw-check-note {
+  margin: 14px 0 0;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(47, 74, 69, 0.14);
+  color: #8a9994;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
 /* ---------- A4 预览 ---------- */
 .dw-a4-wrap {
   margin-top: 22px;
@@ -986,5 +1617,507 @@ onMounted(() => { loadTemplates() })
   color: #8c1d17;
   font-size: 13px;
   line-height: 1.6;
+}
+
+/* ---------- 起草助手 ---------- */
+.dw-assist {
+  display: grid;
+  gap: 18px;
+  margin-top: 22px;
+}
+
+/* 起草助手与草稿本没有 form-hint，操作反馈要单独给一行，否则点了没反应 */
+.dw-status {
+  margin: 0;
+  padding: 9px 14px;
+  border-left: 3px solid rgba(47, 122, 82, 0.5);
+  border-radius: 0 8px 8px 0;
+  background: rgba(47, 122, 82, 0.07);
+  color: #2f6b4c;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.dw-assist-card {
+  padding: 20px 22px;
+  border: 1px solid rgba(47, 74, 69, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 253, 248, 0.82);
+}
+
+.dw-assist-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  color: #2f4a45;
+}
+
+.dw-assist-head strong {
+  display: block;
+  margin-top: 2px;
+  color: #2f4a45;
+  font-size: 16px;
+}
+
+.dw-assist-head small {
+  display: block;
+  margin-top: 4px;
+  color: #7b8b86;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.dw-assist-head .micro {
+  margin: 0;
+}
+
+.dw-brief-input {
+  width: 100%;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(47, 74, 69, 0.16);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #2f4a45;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.dw-brief-input:focus {
+  outline: none;
+  border-color: rgba(47, 122, 82, 0.5);
+  box-shadow: 0 0 0 3px rgba(47, 122, 82, 0.1);
+}
+
+.dw-brief-examples {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.dw-brief-examples > span {
+  color: #8a9994;
+  font-size: 12.5px;
+}
+
+.dw-brief-examples button {
+  max-width: 100%;
+  padding: 5px 10px;
+  border: 1px dashed rgba(47, 74, 69, 0.24);
+  border-radius: 999px;
+  background: transparent;
+  color: #4c6b64;
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dw-brief-examples button:hover {
+  border-color: rgba(47, 122, 82, 0.45);
+  background: rgba(47, 122, 82, 0.07);
+  color: #2f7a52;
+}
+
+.dw-brief-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.dw-brief-genre {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #6d7d78;
+  font-size: 13px;
+}
+
+.dw-brief-genre select {
+  padding: 7px 10px;
+  border: 1px solid rgba(47, 74, 69, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.8);
+  color: #2f4a45;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.dw-brief-note {
+  margin: 12px 0 0;
+  color: #8a9994;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.dw-src {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(47, 74, 69, 0.07);
+  color: #7b8b86;
+  font-size: 11.5px;
+}
+
+.dw-src.is-live {
+  background: rgba(47, 122, 82, 0.12);
+  color: #2f7a52;
+}
+
+.dw-genre-list {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dw-genre-list li {
+  padding: 12px 14px;
+  border: 1px solid rgba(47, 74, 69, 0.1);
+  border-radius: 12px;
+  background: rgba(47, 74, 69, 0.03);
+}
+
+.dw-genre-list li.chosen {
+  border-color: rgba(47, 122, 82, 0.4);
+  background: rgba(47, 122, 82, 0.07);
+}
+
+.dw-genre-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.dw-genre-main strong {
+  color: #2f4a45;
+  font-size: 15px;
+}
+
+.dw-genre-tag {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(47, 74, 69, 0.08);
+  color: #5d726c;
+  font-size: 11.5px;
+}
+
+.dw-genre-tag.ask {
+  background: rgba(184, 74, 48, 0.1);
+  color: #b84a30;
+}
+
+.dw-genre-list p {
+  margin: 8px 0 0;
+  color: #3f5852;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.dw-genre-list small {
+  display: block;
+  margin-top: 4px;
+  color: #8a9994;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.dw-genre-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed rgba(47, 74, 69, 0.14);
+  color: #7b8b86;
+  font-size: 12px;
+}
+
+.dw-genre-foot button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid rgba(47, 74, 69, 0.18);
+  border-radius: 999px;
+  background: transparent;
+  color: #2f7a52;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dw-genre-foot button:hover {
+  border-color: rgba(47, 122, 82, 0.45);
+  background: rgba(47, 122, 82, 0.08);
+}
+
+.dw-contrast-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.dw-contrast-grid section {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(47, 74, 69, 0.03);
+}
+
+.dw-contrast-grid h4 {
+  margin: 0;
+  color: #2f4a45;
+  font-size: 14px;
+}
+
+.dw-contrast-grid h4 small {
+  display: block;
+  margin-top: 2px;
+  color: #a8501f;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.dw-contrast-grid ul {
+  display: grid;
+  gap: 6px;
+  margin: 9px 0 0;
+  padding-left: 18px;
+}
+
+.dw-contrast-grid li {
+  color: #4c6b64;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.dw-phrase-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.dw-phrase-tabs button {
+  padding: 6px 12px;
+  border: 1px solid rgba(47, 74, 69, 0.14);
+  border-radius: 999px;
+  background: transparent;
+  color: #5d726c;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.dw-phrase-tabs button.active {
+  border-color: rgba(47, 122, 82, 0.45);
+  background: rgba(47, 122, 82, 0.1);
+  color: #2f7a52;
+  font-weight: 600;
+}
+
+.dw-phrase-hint {
+  margin: 10px 0 0;
+  color: #8a9994;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.dw-phrase-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dw-phrase-list button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 16px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(47, 74, 69, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+  color: #3f5852;
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.7;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dw-phrase-list button:hover {
+  border-color: rgba(47, 122, 82, 0.4);
+  background: rgba(47, 122, 82, 0.06);
+}
+
+.dw-phrase-text {
+  white-space: pre-wrap;
+}
+
+.dw-phrase-slot {
+  color: #a8b3af;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.dw-phrase-tip {
+  margin: 12px 0 0;
+  color: #8a9994;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+/* ---------- 我的草稿 ---------- */
+.dw-library {
+  display: grid;
+  gap: 18px;
+  margin-top: 22px;
+}
+
+.dw-lib-card {
+  padding: 20px 22px;
+  border: 1px solid rgba(47, 74, 69, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 253, 248, 0.82);
+}
+
+.dw-lib-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.dw-lib-head strong {
+  display: block;
+  margin-top: 2px;
+  color: #2f4a45;
+  font-size: 18px;
+}
+
+.dw-lib-head small {
+  display: block;
+  margin-top: 4px;
+  color: #7b8b86;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.dw-lib-list {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dw-lib-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  background: rgba(47, 74, 69, 0.04);
+}
+
+.dw-lib-main strong {
+  display: block;
+  color: #2f4a45;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.dw-lib-main small {
+  display: block;
+  margin-top: 3px;
+  color: #8a9994;
+  font-size: 12px;
+}
+
+.dw-lib-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.dw-lib-actions button {
+  padding: 5px 12px;
+  border: 1px solid rgba(47, 74, 69, 0.16);
+  border-radius: 999px;
+  background: transparent;
+  color: #2f7a52;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dw-lib-actions button:hover {
+  border-color: rgba(47, 122, 82, 0.45);
+  background: rgba(47, 122, 82, 0.08);
+}
+
+.dw-lib-actions button.danger {
+  color: #b84a30;
+}
+
+.dw-lib-actions button.danger:hover {
+  border-color: rgba(184, 74, 48, 0.4);
+  background: rgba(184, 74, 48, 0.07);
+}
+
+.dw-lib-empty {
+  margin: 14px 0 0;
+  color: #8a9994;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+/* ---------- 校验分组与时限提示 ---------- */
+.dw-check-group {
+  margin-top: 14px;
+}
+
+.dw-check-group h4 {
+  margin: 0 0 8px;
+  color: #7b8b86;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.dw-deadline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border-left: 3px solid #c98a2b;
+  border-radius: 0 8px 8px 0;
+  background: rgba(201, 138, 43, 0.09);
+  color: #8a5c15;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.dw-deadline strong {
+  color: #6f4a0f;
 }
 </style>

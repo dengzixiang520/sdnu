@@ -141,7 +141,11 @@ class TemplatePreParser:
 
     @staticmethod
     def _extract_attachments(source_text: str) -> list[str]:
-        """附件说明可能折行：「附件：1.×××」后面跟缩进续行「　　　2.×××」。"""
+        """附件说明可能折行：「附件：1.×××」后面跟续行「2.×××」。
+
+        续行既可能按细则缩进对齐，也可能被手打或模型输出成顶格，
+        两种都要收，否则导出 DOCX 会静默丢掉第二条以后的附件。
+        """
         items: list[str] = []
         capturing = False
         for line in source_text.splitlines():
@@ -156,8 +160,8 @@ class TemplatePreParser:
                 continue
             if not stripped:
                 break
-            # 续行必须是缩进的条目编号，否则附件块到此结束
-            if line[:1].isspace() and re.match(r"^[（(]?\d+[）).、．]", stripped):
+            # 续行必须是条目编号，否则附件块到此结束
+            if re.match(r"^[（(]?\d+[）).、．]", stripped):
                 items.append(stripped)
                 continue
             break

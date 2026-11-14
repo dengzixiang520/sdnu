@@ -47,4 +47,4 @@ class PlatformContainer:
         self.competition_service = CompetitionService("./data")
         self.points_service = PointsService("./data")
         self.system_integration = SystemIntegrationService()
-        self.router = SuperAgentRouter(self.security_gateway, [WellbeingSkill(self.wellbeing), DormitorySkill(), AcademicSkill(self.academic), self.innovation, DocumentEngineSkill()])
+        self.router = SuperAgentRouter(self.security_gateway, [WellbeingSkill(self.wellbeing), DormitorySkill(), AcademicSkill(self.academic), self.innovation, DocumentEngineSkill(provider=self.ai_provider)])

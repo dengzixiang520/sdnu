@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from zhihui_qilu.document_models import OfficialDocumentElements
+from zhihui_qilu.document_phrases import phrase_payload
 from zhihui_qilu.document_service import AdministrativeDocxEngine
 from zhihui_qilu.document_templates import BANNERS, TEMPLATE_CATALOG
 
@@ -53,6 +54,16 @@ class DocumentElements(BaseModel):
 async def list_templates() -> dict[str, Any]:
     """返回公文文种模板库与版头选项，作为前端唯一数据源。"""
     return {"success": True, "data": {"templates": TEMPLATE_CATALOG, "banners": BANNERS}}
+
+
+@router.get("/phrases")
+async def list_phrases() -> dict[str, Any]:
+    """返回起草助手用的句式库、文种指引、易混对照与报送时限。
+
+    与模板库同源放在后端：文种 id 必须和 TEMPLATE_CATALOG 对得上，
+    两处各写一份迟早会走样。
+    """
+    return {"success": True, "data": phrase_payload()}
 
 
 def _safe_filename(title: str) -> str:
