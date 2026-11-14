@@ -419,6 +419,94 @@ async function requestBooking() {
   }
 }
 
+/* ---------- 心情不好时的疏导动作 ---------- */
+interface SootheAction { id: string; title: string; detail: string; why: string; target: string }
+interface SootheGroup { id: string; label: string; actions: SootheAction[] }
+
+const SOOTHE_LOG_KEY = 'zhq-wellbeing-soothe-log'
+/** 跳转锚点：每条建议都能落到页面上一个真实入口，不用用户自己找 */
+const SOOTHE_ANCHORS: Record<string, string> = {
+  chat: '.gcx-card',
+  journal: '.journal-card',
+  breath: '.wbx-breath-card',
+  music: '.wellbeing-rail',
+}
+
+const sootheGroups = ref<SootheGroup[]>([])
+const sootheShow = ref(false)
+const sootheRound = ref(0)
+/** 本轮已经标记过的动作 id，只影响显示，不影响累计日志 */
+const sootheDone = ref<string[]>([])
+const sootheLog = ref<Array<{ id: string; at: string }>>([])
+
+function readSootheLog(): Array<{ id: string; at: string }> {
+  try {
+    const raw = localStorage.getItem(SOOTHE_LOG_KEY)
+    const rows = raw ? (JSON.parse(raw) as Array<{ id: string; at: string }>) : []
+    return Array.isArray(rows) ? rows.filter((row) => row && typeof row.id === 'string' && typeof row.at === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function persistSootheLog() {
+  try {
+    localStorage.setItem(SOOTHE_LOG_KEY, JSON.stringify(sootheLog.value.slice(-120)))
+  } catch {
+    // 配额满时丢历史，不影响本次使用
+  }
+}
+
+async function fetchSoothe() {
+  if (!isStudent.value) return
+  try {
+    const result = await command('wellbeing', 'soothe_suggestions')
+    const data = result.data as { show?: boolean; groups?: SootheGroup[] }
+    sootheGroups.value = Array.isArray(data.groups) ? data.groups : []
+    sootheShow.value = Boolean(data.show)
+  } catch {
+    sootheGroups.value = []
+    sootheShow.value = false
+  }
+}
+
+/** 每组各取一条，「换一批」整体往后挪一位 */
+const soothePicks = computed(() => sootheGroups.value
+  .map((group) => (group.actions.length
+    ? { id: group.id, label: group.label, action: group.actions[sootheRound.value % group.actions.length] }
+    : null))
+  .filter((item): item is { id: string; label: string; action: SootheAction } => item !== null))
+
+const sootheWeekCount = computed(() => {
+  const cutoff = Date.now() - 7 * 86400000
+  return sootheLog.value.filter((row) => {
+    const at = new Date(row.at).getTime()
+    return Number.isFinite(at) && at >= cutoff
+  }).length
+})
+
+function rotateSoothe() {
+  sootheRound.value += 1
+  sootheDone.value = []
+}
+
+/** 标记「做了」只就地置灰，不轮换——否则条目会在手指底下消失 */
+function markSootheDone(action: SootheAction) {
+  sootheLog.value = [...sootheLog.value, { id: action.id, at: new Date().toISOString() }]
+  persistSootheLog()
+  if (!sootheDone.value.includes(action.id)) sootheDone.value = [...sootheDone.value, action.id]
+}
+
+function jumpSoothe(action: SootheAction) {
+  const selector = SOOTHE_ANCHORS[action.target]
+  if (!selector) return
+  const node = document.querySelector<HTMLElement>(selector)
+  node?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  if (action.target === 'chat') {
+    window.setTimeout(() => node?.querySelector('input')?.focus(), 420)
+  }
+}
+
 /* ---------- 呼吸练习累计 ---------- */
 const BREATH_LOG_KEY = 'zhq-wellbeing-breath-log'
 interface BreathLogRow { at: string; pattern: string; minutes: number }
@@ -512,6 +600,8 @@ async function checkIn() {
     await fetchMoodHistory()
     // 拿刷新后的数据做「照镜子」对比
     buildInsight()
+    // 心情变化后疏导建议也要跟着重算
+    void fetchSoothe()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '记录失败，请稍后再试。'
   } finally { loading.value = false }
@@ -968,9 +1058,11 @@ function generatePDF() {
 onMounted(() => {
   fetchWall()
   breathLog.value = readBreathLog()
+  sootheLog.value = readSootheLog()
   if (isStudent.value) {
     // 趋势和热力图共用这一次请求；日记存档在本地，读不到就整块不渲染。
     fetchMoodHistory()
+    fetchSoothe()
     seedJournalToday()
     loadJournalMemory()
   }
@@ -1146,6 +1238,40 @@ onBeforeUnmount(() => clearBreathTimer())
         </div>
 
         <p v-if="error" class="inline-error">{{ error }}</p>
+      </article>
+
+      <!-- 心情不好时的疏导动作：三组各推一条，可换一批、可标记做过、可跳到对应板块 -->
+      <article v-if="isStudent && sootheShow && soothePicks.length" class="wbx-soothe">
+        <header class="wbx-soothe-head">
+          <div><PhHeart :size="22" weight="duotone" /><h2>现在可以先做一件</h2></div>
+          <div class="wbx-soothe-actions">
+            <span v-if="sootheWeekCount" class="wbx-soothe-count">本周做过 {{ sootheWeekCount }} 次</span>
+            <button type="button" class="wbx-ghost-btn" @click="rotateSoothe">换一批</button>
+          </div>
+        </header>
+        <p class="wbx-soothe-hint">情绪越压反弹越强，先让它有个出口，缓解才有落脚的地方。挑一件就够，不用都做。</p>
+        <ul class="wbx-soothe-list">
+          <li v-for="pick in soothePicks" :key="pick.action.id">
+            <span class="wbx-soothe-group">{{ pick.label }}</span>
+            <div class="wbx-soothe-body">
+              <strong>{{ pick.action.title }}</strong>
+              <p>{{ pick.action.detail }}</p>
+              <small>{{ pick.action.why }}</small>
+              <div class="wbx-soothe-buttons">
+                <button v-if="pick.action.target" type="button" class="wbx-mini-btn" @click="jumpSoothe(pick.action)">
+                  去这里
+                </button>
+                <button
+                  type="button"
+                  class="wbx-mini-btn is-done"
+                  :class="{ 'is-marked': sootheDone.includes(pick.action.id) }"
+                  :disabled="sootheDone.includes(pick.action.id)"
+                  @click="markSootheDone(pick.action)"
+                >{{ sootheDone.includes(pick.action.id) ? '已做过' : '做了' }}</button>
+              </div>
+            </div>
+          </li>
+        </ul>
       </article>
 
       <!-- 学生专属：情绪复盘（原来的「走势图 + 心情日历」是同一份数据的两种画法，合并成一块） -->
@@ -1537,6 +1663,48 @@ onBeforeUnmount(() => clearBreathTimer())
 .wbx-booking-user { color: var(--muted); }
 .wbx-booking-level { padding: 0 .35rem; color: #9e3030; background: rgba(158, 48, 48, .1); border-radius: 6px; font-size: .68rem; font-weight: 700; }
 .wbx-booking-note-text { color: #4d625f; font-size: .76rem; }
+
+/* ===== 心情不好时的疏导动作 ===== */
+.wbx-soothe {
+  margin-top: 20px; padding: 20px 22px;
+  background: var(--paper); border-radius: 20px; box-shadow: var(--shadow);
+  border-left: 4px solid var(--gold);
+}
+.wbx-soothe-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.wbx-soothe-head > div:first-child { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.wbx-soothe-head svg { flex: none; color: var(--gold); }
+.wbx-soothe-head h2 { margin: 0; font: 400 1.3rem "LXGW WenKai", cursive; }
+.wbx-soothe-actions { display: flex; align-items: center; gap: .5rem; flex: none; }
+.wbx-soothe-count { color: var(--muted); font-size: .74rem; font-variant-numeric: tabular-nums; }
+.wbx-soothe-hint { margin: .5rem 0 0; color: var(--muted); font-size: .8rem; line-height: 1.7; }
+.wbx-soothe-list { margin: .9rem 0 0; padding: 0; list-style: none; display: grid; gap: .6rem; }
+.wbx-soothe-list li {
+  display: grid; grid-template-columns: 6.2rem 1fr; gap: .7rem;
+  padding: .7rem .8rem; border-radius: 12px;
+  background: rgba(240, 236, 228, .55);
+}
+.wbx-soothe-group {
+  align-self: start; padding: .2rem .45rem;
+  color: #7c5a1e; background: #fff0c6; border-radius: 7px;
+  font-size: .68rem; font-weight: 750; line-height: 1.5; text-align: center;
+}
+.wbx-soothe-body { min-width: 0; display: grid; gap: .18rem; }
+.wbx-soothe-body strong { color: var(--ink); font-size: .88rem; }
+.wbx-soothe-body p { margin: 0; color: #4d625f; font-size: .8rem; line-height: 1.65; }
+.wbx-soothe-body small { color: var(--muted); font-size: .74rem; line-height: 1.6; }
+.wbx-soothe-buttons { display: flex; gap: .4rem; margin-top: .35rem; }
+.wbx-mini-btn {
+  padding: .26rem .6rem; color: var(--green); background: var(--green-soft);
+  border: 1px solid transparent; border-radius: 8px;
+  font-size: .74rem; font-weight: 700; cursor: pointer;
+}
+.wbx-mini-btn:hover { border-color: var(--green); }
+.wbx-mini-btn.is-done { color: #fff; background: var(--green); }
+.wbx-mini-btn.is-done:hover { background: #2f6b60; }
+.wbx-mini-btn.is-marked,
+.wbx-mini-btn.is-marked:disabled {
+  color: var(--muted); background: rgba(23, 63, 67, .07); cursor: default;
+}
 
 /* ===== 呼吸多节奏 ===== */
 .wbx-breath-card { align-items: flex-start; }

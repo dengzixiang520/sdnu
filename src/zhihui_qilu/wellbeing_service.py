@@ -47,6 +47,100 @@ class WellbeingService:
     _HIGH_RISK_TERMS = ("自杀", "自殘", "自残", "结束生命", "不想活", "suicide", "kill myself")
     _NEGATIVE_WEATHER = {MoodWeather.RAINY, MoodWeather.STORMY}
 
+    #: 心情不好时的疏导动作库。分三组，每组都能落到一个具体动作上：
+    #: 出口（把情绪放出来）、身体（先让身体松）、不用动脑（把注意力从反刍里挪开）。
+    #: ``target`` 对应前端可跳转的锚点，空字符串表示不需要跳转、直接去做。
+    _SOOTHE_GROUPS: tuple[tuple[str, str, tuple[dict[str, str], ...]], ...] = (
+        (
+            "outlet",
+            "给情绪找个出口",
+            (
+                {
+                    "id": "outlet-talk",
+                    "title": "找个人说出来",
+                    "detail": "挑一个不用你解释前因后果的人，说十分钟就够。",
+                    "why": "情绪越压反弹越强，先让它出来，才有缓解的余地。",
+                    "target": "chat",
+                },
+                {
+                    "id": "outlet-journal",
+                    "title": "写下来，不用给任何人看",
+                    "detail": "打开下面「只写给自己」，写三行，写不通顺也算。",
+                    "why": "写出来会把一团模糊的难受，变成看得见的几件事。",
+                    "target": "journal",
+                },
+                {
+                    "id": "outlet-cry",
+                    "title": "想哭就哭一场",
+                    "detail": "找个不被打扰的地方，不用忍着，也不用为哭找理由。",
+                    "why": "哭是身体的减压反应，不是软弱，也不需要被批准。",
+                    "target": "",
+                },
+            ),
+        ),
+        (
+            "body",
+            "先让身体松下来",
+            (
+                {
+                    "id": "body-walk",
+                    "title": "出门快走或慢跑 15 分钟",
+                    "detail": "不用换运动服，绕操场或宿舍楼走一圈都算。",
+                    "why": "有节奏的走动能让绷紧的身体先松下来，脑子跟着慢。",
+                    "target": "",
+                },
+                {
+                    "id": "body-sun",
+                    "title": "去晒 10 分钟太阳",
+                    "detail": "下午四点前后光最好，站楼底下就行，不用专门去公园。",
+                    "why": "光照直接影响情绪调节，比坐在屋里反复想有用。",
+                    "target": "",
+                },
+                {
+                    "id": "body-ball",
+                    "title": "打一场挥拍类运动",
+                    "detail": "羽毛球、乒乓球都行，二十分钟就够。",
+                    "why": "手上要追球的时候，反刍会自己停下来。",
+                    "target": "",
+                },
+            ),
+        ),
+        (
+            "idle",
+            "做一件不用动脑的小事",
+            (
+                {
+                    "id": "idle-tidy",
+                    "title": "只整理一小块地方",
+                    "detail": "收桌面，或者只叠衣服，不用收拾整个宿舍。",
+                    "why": "手上在做具体的事，脑子会跟着安静下来。",
+                    "target": "",
+                },
+                {
+                    "id": "idle-shower",
+                    "title": "洗个热水澡",
+                    "detail": "水热一点，待久一点，不赶时间。",
+                    "why": "身体暖起来，紧绷感会跟着退一截。",
+                    "target": "",
+                },
+                {
+                    "id": "idle-build",
+                    "title": "拼点什么，或者做点手工",
+                    "detail": "乐高、拼图、折纸、涂色都算。",
+                    "why": "要一点手部专注但不用思考的事，最容易把人从反刍里拉出来。",
+                    "target": "",
+                },
+                {
+                    "id": "idle-sound",
+                    "title": "听点不用动脑的声音",
+                    "detail": "右栏「声音角落」里有钢琴和雨声，随手听就行。",
+                    "why": "有声音填着，脑子就没那么容易被同一件事占满。",
+                    "target": "music",
+                },
+            ),
+        ),
+    )
+
     # 开心分享墙的确定性闸门。刻意不使用大模型判定：与危机拦截同源，
     # 结果可复现、可解释，也不会把学生的原文发到外部服务。
     _SHARE_NEGATIVE_TERMS = (
@@ -140,6 +234,23 @@ class WellbeingService:
             mood = checkins[-1][1] if checkins else ""
 
         return {"opening": opening, "chips": chips, "mood": mood, "alert_level": level, "checked_today": checked_today}
+
+    async def compose_soothe(self, user_id: str) -> dict[str, object]:
+        """心情不好时给的具体疏导动作。
+
+        和「安慰话」分开：安慰是态度，这里给的是能立刻执行的动作。
+        每条都带一个前端可跳转的锚点，避免推荐完还要自己找入口。
+        """
+        state = await self.compose_opening(user_id)
+        level = str(state["alert_level"])
+        mood = str(state["mood"])
+        # 绿等级 + 非负面心情时不必推动作，避免变成又一块没人看的文案
+        show = level != "green" or mood in {weather.value for weather in self._NEGATIVE_WEATHER}
+        groups = [
+            {"id": group_id, "label": label, "actions": [dict(action) for action in actions]}
+            for group_id, label, actions in self._SOOTHE_GROUPS
+        ]
+        return {"show": show, "level": level, "mood": mood, "groups": groups}
 
     async def record_check_in(self, user_id: str, session_id: str, check_in: MoodCheckIn) -> MoodCheckInResult:
         """Persist a private check-in, calculate the transparent support level, and alert safely."""

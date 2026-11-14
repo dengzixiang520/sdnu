@@ -29,6 +29,11 @@ class WellbeingSkill(BaseSkill):
         if action == "guide_opening":
             opening = await self._service.compose_opening(request.context.user_id)
             return AgentResponse(success=True, message=str(opening["opening"]), data=opening)
+
+        # 心情不好时的具体疏导动作（分三组，每条可跳转到对应板块）
+        if action == "soothe_suggestions":
+            suggestions = await self._service.compose_soothe(request.context.user_id)
+            return AgentResponse(success=True, message="已按最近状态准备疏导建议", data=suggestions)
         
         if action == "control":
             command = self._service.parse_control_command(request.text)
@@ -117,6 +122,6 @@ class WellbeingSkill(BaseSkill):
             return AgentResponse(success=True, message="谈心记录已创建", data=entry.model_dump(mode="json"))
         
         return AgentResponse(success=False, message="不支持的心育操作", data={
-            "student_actions": ["greeting", "guide_opening", "control", "mood_checkin", "mood_history", "request_booking", "wall_messages", "happy_shares", "publish_happy_share", "cheer_happy_share"],
+            "student_actions": ["greeting", "guide_opening", "soothe_suggestions", "control", "mood_checkin", "mood_history", "request_booking", "wall_messages", "happy_shares", "publish_happy_share", "cheer_happy_share"],
             "staff_actions": ["publish_wall_message", "list_alerts", "list_bookings", "create_talk_ledger"]
         })
