@@ -31,7 +31,20 @@ def test_team_matching_and_proposal_outline() -> None:
     matches = TeamMatcher().match(TeamRequirement(project_name="校园 AI", required_skills={"python": 1, "frontend": 1}), [StudentSkillProfile(student_id="u1", display_name="小王", skills={"python": 1}), StudentSkillProfile(student_id="u2", display_name="小李", skills={"frontend": 1, "python": 1})])
     assert matches[0].student_id == "u2"
     outline = ProposalOutlineGenerator().generate("校园 AI", "创新大赛", ["FastAPI", "多 Agent"])
-    assert "技术路线" in outline.sections[3]
+    # 结构对齐中国国际大学生创新大赛（2026）官方九大要素，顺序即评审顺序
+    assert len(outline.sections) == 9
+    assert outline.sections[0] == "一、项目概述"
+    assert "商业模式" in outline.sections[3]
+    assert outline.sections[-1] == "九、发展规划"
+    assert len(outline.blueprint) == 9
+    # 技术关键词只落在「产品或服务」一段，不污染其余八段
+    product = next(item for item in outline.blueprint if item.id == "product")
+    assert "FastAPI" in product.weight_note and "多 Agent" in product.weight_note
+    assert all("FastAPI" not in item.weight_note for item in outline.blueprint if item.id != "product")
+    # 每段都要有可勾的自检点，否则前端算不出完成度
+    assert all(item.checkpoints for item in outline.blueprint)
+    assert outline.checkpoint_total == sum(len(item.checkpoints) for item in outline.blueprint)
+    assert outline.checkpoint_total >= 40
 
 
 def test_pending_competitions_are_visible_only_to_administrators() -> None:

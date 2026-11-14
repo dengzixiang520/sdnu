@@ -18,6 +18,7 @@ from zhihui_qilu.academic_service import (
 )
 from zhihui_qilu.config import Settings, get_settings
 from zhihui_qilu.core.models import AgentRequest, AgentResponse
+from zhihui_qilu.credit_service import CreditWarningService
 from zhihui_qilu.skills.base import BaseSkill
 from zhihui_qilu.speech_service import AsrUnavailableError, MimoAsrService
 
@@ -256,6 +257,7 @@ class AcademicSkill(BaseSkill):
         self._service = service
         self._organizer = organizer or NoteOrganizer()
         self._settings = settings or get_settings()
+        self._credit = CreditWarningService()
         # 复用同一个 httpx 客户端；未配置密钥时 available 为 False，只在调用时才真正发请求。
         self._asr = MimoAsrService(self._settings)
 
@@ -274,7 +276,39 @@ class AcademicSkill(BaseSkill):
             return await self._organize_audio(request)
         if action == "organize_document":
             return await self._organize_document(request)
+        if action == "credit_warning":
+            return self._credit_warning(request)
         return AgentResponse(success=False, message="不支持的学业成长操作", data={"supported_actions": list(SUPPORTED_ACTIONS)})
+
+    def _credit_warning(self, request: AgentRequest) -> AgentResponse:
+        """按学校学业预警办法做一次自检，缺参数时回一句能照着填的提示。"""
+        payload = request.payload
+        try:
+            assessment = self._credit.assess(
+                grade=int(payload.get("grade", 0)),
+                program_years=int(payload.get("program_years", 0)),
+                required_credits=float(payload.get("required_credits", 0)),
+                earned_credits=float(payload.get("earned_credits", 0)),
+                year_credits=float(payload.get("year_credits", 0)),
+                failed_courses=int(payload.get("failed_courses", 0) or 0),
+            )
+        except (TypeError, ValueError) as exc:
+            return AgentResponse(success=False, message=f"学分数据填得不对：{exc}")
+        labels = {"ok": "学分进度正常", "watch": "有需要留意的信号", "warning": "已命中学校预警标准"}
+        return AgentResponse(
+            success=True,
+            message=f"{labels[assessment.level]}（累计完成 {assessment.progress * 100:.1f}%）",
+            data={
+                "level": assessment.level,
+                "progress": assessment.progress,
+                "required_credits": assessment.required_credits,
+                "earned_credits": assessment.earned_credits,
+                "triggers": [trigger.__dict__ for trigger in assessment.triggers],
+                "student_steps": assessment.student_steps,
+                "school_steps": assessment.school_steps,
+                "note": assessment.note,
+            },
+        )
 
     def _organize_transcript(self, request: AgentRequest) -> AgentResponse:
         """Organize pasted transcript lines; an empty box is a user error, not a server fault."""
@@ -357,5 +391,5 @@ class AcademicSkill(BaseSkill):
         return AgentResponse(success=True, message="文档已整理为结构化笔记", data=_note_payload(note, extractor.segments, source))
 
 
-supported_actions = ["start_interview", "evaluate_interview", "organize_transcript", "organize_audio", "organize_document"]
+supported_actions = ["start_interview", "evaluate_interview", "organize_transcript", "organize_audio", "organize_document", "credit_warning"]
 SUPPORTED_ACTIONS = tuple(supported_actions)

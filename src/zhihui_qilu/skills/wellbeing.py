@@ -34,6 +34,25 @@ class WellbeingSkill(BaseSkill):
         if action == "soothe_suggestions":
             suggestions = await self._service.compose_soothe(request.context.user_id)
             return AgentResponse(success=True, message="已按最近状态准备疏导建议", data=suggestions)
+
+        # 总览页成长导言：每次进来一句，按状态选方向、按天换文案
+        if action == "growth_note":
+            note = await self._service.compose_growth_note(request.context.user_id)
+            return AgentResponse(success=True, message=str(note["note"]), data=note)
+
+        # 4 题极简自评（PHQ-2 + GAD-2）：题面由后端给，前端不硬编码
+        if action == "self_check_items":
+            return AgentResponse(success=True, message="已获取自评题目", data=self._service.self_check_items())
+
+        if action == "submit_self_check":
+            answers = request.payload.get("answers", {})
+            if not isinstance(answers, dict):
+                return AgentResponse(success=False, message="答案格式不对")
+            try:
+                result = await self._service.submit_self_check(request.context.user_id, request.context.session_id, answers)
+            except ValueError as exc:
+                return AgentResponse(success=False, message=str(exc))
+            return AgentResponse(success=True, message=str(result["advice"]), data=result)
         
         if action == "control":
             command = self._service.parse_control_command(request.text)
@@ -122,6 +141,6 @@ class WellbeingSkill(BaseSkill):
             return AgentResponse(success=True, message="谈心记录已创建", data=entry.model_dump(mode="json"))
         
         return AgentResponse(success=False, message="不支持的心育操作", data={
-            "student_actions": ["greeting", "guide_opening", "soothe_suggestions", "control", "mood_checkin", "mood_history", "request_booking", "wall_messages", "happy_shares", "publish_happy_share", "cheer_happy_share"],
+            "student_actions": ["greeting", "guide_opening", "soothe_suggestions", "growth_note", "self_check_items", "submit_self_check", "control", "mood_checkin", "mood_history", "request_booking", "wall_messages", "happy_shares", "publish_happy_share", "cheer_happy_share"],
             "staff_actions": ["publish_wall_message", "list_alerts", "list_bookings", "create_talk_ledger"]
         })

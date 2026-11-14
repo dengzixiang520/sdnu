@@ -157,6 +157,47 @@ class WellbeingService:
         "那一条只有你和辅导员能看到，不会公开。"
     )
 
+    # 4 题极简自评：PHQ-2 + GAD-2，高校心理普测常用的超短筛查工具。
+    # 只用来提示「要不要找专业的人聊聊」，不做任何诊断。
+    _SELF_CHECK_ITEMS = (
+        ("interest", "做事时提不起劲或没有兴趣", "phq"),
+        ("mood", "感到心情低落、沮丧或绝望", "phq"),
+        ("anxious", "感到紧张、焦虑或急切", "gad"),
+        ("worry", "不能停止或控制担忧", "gad"),
+    )
+    _SELF_CHECK_OPTIONS = ((0, "完全不会"), (1, "好几天"), (2, "一半以上时间"), (3, "几乎每天"))
+    _SELF_CHECK_WINDOW = "最近两周"
+    _SELF_CHECK_HOTLINE = "12356（24 小时心理援助热线）"
+    _SELF_CHECK_DISCLAIMER = "这是筛查工具，不是诊断。结果只用来提示要不要找专业的人聊聊，不会被任何人拿去做评价。"
+
+    # 成长导言库：四个方向，每个方向四句。只给情绪能量，不派任务。
+    _GROWTH_NOTES = {
+        "情绪管理": (
+            "先让身体松下来，脑子才跟得上。今天只做一件小事就够了。",
+            "绷着的时候不用逼自己想通，先喝口水、站一会儿。",
+            "情绪不是待解决的问题，它只是提醒你最近有点累。",
+            "今天状态不好也可以只完成一半，明天还在。",
+        ),
+        "自我认知": (
+            "你上一次撑过来，靠的不是运气，是当时做的那个决定。",
+            "会累说明你在意，不是说明你不行。",
+            "你不需要每天都很好，及格线也是一条线。",
+            "把「我不行」换成「我还没找到方法」，事情会不一样。",
+        ),
+        "目标设定": (
+            "今天只定一个能在一小时内做完的目标，做完就算赢。",
+            "先写下一件拖了三天的事，只做第一步。",
+            "目标越大越要拆，今天先拆到「打开文件」这一层。",
+            "把「这周要复习完」改成「今晚看完这一节」。",
+        ),
+        "学习动力": (
+            "先做五分钟，五分钟之后想停就停——通常你不会停。",
+            "记不住不是脑子的问题，是还没重复到第三遍。",
+            "进度不是感觉出来的，勾掉一条才算。",
+            "今天推进一点，明天就不用从零开始。",
+        ),
+    }
+
     def __init__(self, memory: MemorySystem, gateway: SecurityIsolationGateway, settings: Settings) -> None:
         self._memory = memory
         self._gateway = gateway
@@ -251,6 +292,106 @@ class WellbeingService:
             for group_id, label, actions in self._SOOTHE_GROUPS
         ]
         return {"show": show, "level": level, "mood": mood, "groups": groups}
+
+    def self_check_items(self) -> dict[str, object]:
+        """4 题极简自评的题面。前端不硬编码题目，改题库只改后端一处。"""
+        return {
+            "window": self._SELF_CHECK_WINDOW,
+            "items": [{"id": key, "text": text, "group": group} for key, text, group in self._SELF_CHECK_ITEMS],
+            "options": [{"value": value, "label": label} for value, label in self._SELF_CHECK_OPTIONS],
+            "disclaimer": self._SELF_CHECK_DISCLAIMER,
+        }
+
+    async def submit_self_check(self, user_id: str, session_id: str, answers: dict[str, object]) -> dict[str, object]:
+        """记录一次极简自评并给出分级建议。
+
+        PHQ-2 / GAD-2 是高校心理普测里常用的超短筛查工具，阳性只代表「值得让专业的人
+        看一眼」，不代表任何诊断。因此这里只输出「建议预约」与否，不下结论、不打标签。
+        """
+        cleaned: dict[str, int] = {}
+        for key, _, _ in self._SELF_CHECK_ITEMS:
+            try:
+                value = int(answers.get(key, -1))  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                raise ValueError("每题都要选一个选项") from None
+            if not 0 <= value <= 3:
+                raise ValueError("每题都要选一个选项")
+            cleaned[key] = value
+
+        phq2 = cleaned["interest"] + cleaned["mood"]
+        gad2 = cleaned["anxious"] + cleaned["worry"]
+        total = phq2 + gad2
+
+        if phq2 >= 3 or gad2 >= 3:
+            level = "orange"
+        elif total >= 2:
+            level = "yellow"
+        else:
+            level = "green"
+
+        # 哪一组更高，决定建议往哪个方向说
+        focus = "情绪低落" if phq2 > gad2 else ("紧张担忧" if gad2 > phq2 else "情绪与紧张")
+
+        if level == "orange":
+            advice = (
+                f"最近两周里，{focus}这一组得分偏高。建议让专业的人看一眼——"
+                "学校心理中心可以免费预约，也可以先和辅导员聊一次。"
+            )
+        elif level == "yellow":
+            advice = (
+                f"有一些{focus}的信号，但还没到需要立刻处理的程度。"
+                "先试试每天固定做一件小事，两周后再测一次，看是变好还是变重。"
+            )
+        else:
+            advice = "最近两周的状态比较稳。保持现在的作息和节奏就行，不用额外做什么。"
+
+        await self._memory.put(
+            MemoryRecord(
+                user_id=user_id,
+                session_id=session_id,
+                tier=MemoryTier.SHORT_TERM,
+                category="wellbeing.self_check",
+                value={"answers": cleaned, "phq2": phq2, "gad2": gad2, "total": total, "level": level, "checked_at": utc_now().isoformat()},
+                source_agent="wellbeing-service",
+                access_scope=AccessScope.OWNER,
+                sensitivity=SensitivityLevel.SENSITIVE,
+                expires_at=utc_now() + timedelta(seconds=self._settings.short_term_memory_ttl_seconds),
+            )
+        )
+        return {
+            "level": level,
+            "phq2": phq2,
+            "gad2": gad2,
+            "total": total,
+            "focus": focus,
+            "advice": advice,
+            "recommend_booking": level == "orange",
+            "hotline": self._SELF_CHECK_HOTLINE,
+            "window": self._SELF_CHECK_WINDOW,
+            "disclaimer": self._SELF_CHECK_DISCLAIMER,
+        }
+
+    async def compose_growth_note(self, user_id: str) -> dict[str, object]:
+        """总览页的成长导言：每次进来一句，按当前状态选方向，按天轮换文案。
+
+        做法参照高校 AI 辅导员的「成长导言库」：覆盖学习动力、情绪管理、目标设定、
+        自我认知四个方向，只给情绪能量，不派任务。
+        """
+        state = await self.compose_opening(user_id)
+        level = str(state["alert_level"])
+        checked_today = bool(state["checked_today"])
+        if level in {"orange", "red"}:
+            tag = "情绪管理"
+        elif level == "yellow":
+            tag = "自我认知"
+        elif checked_today:
+            tag = "学习动力"
+        else:
+            tag = "目标设定"
+        pool = self._GROWTH_NOTES[tag]
+        # 用「年内第几天」定序：同一天刷新不会跳，第二天换一条
+        index = utc_now().timetuple().tm_yday % len(pool)
+        return {"note": pool[index], "tag": tag, "level": level, "checked_today": checked_today}
 
     async def record_check_in(self, user_id: str, session_id: str, check_in: MoodCheckIn) -> MoodCheckInResult:
         """Persist a private check-in, calculate the transparent support level, and alert safely."""

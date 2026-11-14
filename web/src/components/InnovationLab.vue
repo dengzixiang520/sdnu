@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { PhArrowSquareOut, PhFilePlus, PhFunnel, PhLightbulb, PhMagnifyingGlass, PhMegaphone, PhNewspaper, PhRocketLaunch, PhUsersThree, PhTrophy, PhCalendar, PhUsers, PhStar, PhArrowLeft, PhTarget, PhMedal, PhClock, PhBookOpen, PhUpload, PhChartBar } from '@phosphor-icons/vue'
+import { PhArrowSquareOut, PhFilePlus, PhFunnel, PhLightbulb, PhMagnifyingGlass, PhMegaphone, PhNewspaper, PhRocketLaunch, PhUsersThree, PhTrophy, PhCalendar, PhUsers, PhStar, PhArrowLeft, PhTarget, PhMedal, PhClock, PhBookOpen, PhUpload, PhChartBar, PhCheckCircle, PhCircle, PhWarningCircle } from '@phosphor-icons/vue'
 import { command, requestJson } from '../api'
 import { useIdentity } from '../identity'
 
@@ -698,13 +698,76 @@ function skillWeightText(skills: Record<string, number>): string {
     .join(' · ')
 }
 
-/* ---------- 5. 申报大纲 ---------- */
+/* ---------- 5. 申报大纲（对齐官方九大要素 + 逐条自检） ---------- */
+interface ProposalSection { id: string; title: string; weight_note: string; checkpoints: string[] }
+interface ProposalOutline {
+  project_name: string
+  competition_name: string
+  sections: string[]
+  blueprint: ProposalSection[]
+  source_note: string
+  checkpoint_total: number
+}
+
+const PROPOSAL_CHECK_KEY = 'zhq-proposal-check-v1'
+
 const proposalProject = ref('')
 const proposalCompetition = ref('')
 const proposalKeywords = ref('')
-const proposalOutline = ref<{ project_name: string; competition_name: string; sections: string[] } | null>(null)
+const proposalOutline = ref<ProposalOutline | null>(null)
 const proposalBusy = ref(false)
 const proposalNotice = ref('')
+/** 自检勾选状态：key = 段落 id | 自检点序号，按项目名+赛事名一起存 */
+const proposalChecked = ref<Record<string, boolean>>({})
+
+function proposalStoreKey(): string {
+  if (!proposalOutline.value) return ''
+  return `${proposalOutline.value.project_name}||${proposalOutline.value.competition_name}`
+}
+
+function checkKey(sectionId: string, index: number): string {
+  return `${sectionId}|${index}`
+}
+
+function loadProposalChecks() {
+  try {
+    const raw = localStorage.getItem(PROPOSAL_CHECK_KEY)
+    const parsed = raw ? JSON.parse(raw) as Record<string, Record<string, boolean>> : {}
+    proposalChecked.value = parsed[proposalStoreKey()] ?? {}
+  } catch {
+    proposalChecked.value = {}
+  }
+}
+
+function persistProposalChecks() {
+  if (!proposalOutline.value) return
+  try {
+    const raw = localStorage.getItem(PROPOSAL_CHECK_KEY)
+    const parsed = raw ? JSON.parse(raw) as Record<string, Record<string, boolean>> : {}
+    parsed[proposalStoreKey()] = proposalChecked.value
+    localStorage.setItem(PROPOSAL_CHECK_KEY, JSON.stringify(parsed))
+  } catch {
+    // 隐私模式下写不进去，勾选仍然在当前会话可用
+  }
+}
+
+function toggleCheck(sectionId: string, index: number) {
+  const key = checkKey(sectionId, index)
+  proposalChecked.value = { ...proposalChecked.value, [key]: !proposalChecked.value[key] }
+  persistProposalChecks()
+}
+
+const proposalTotal = computed(() => proposalOutline.value?.blueprint.reduce((sum, item) => sum + item.checkpoints.length, 0) ?? 0)
+const proposalDone = computed(() => Object.values(proposalChecked.value).filter(Boolean).length)
+const proposalPercent = computed(() => (proposalTotal.value ? Math.round((proposalDone.value / proposalTotal.value) * 100) : 0))
+/** 一段都没勾的段落：直接告诉用户「哪几段是空的」，比给个百分比有用 */
+const proposalEmptySections = computed(() => {
+  const outline = proposalOutline.value
+  if (!outline) return []
+  return outline.blueprint
+    .filter((section) => section.checkpoints.every((_, index) => !proposalChecked.value[checkKey(section.id, index)]))
+    .map((section) => section.title.replace(/^[一二三四五六七八九十]+、/, ''))
+})
 
 async function generateProposal() {
   if (!proposalProject.value.trim() || !proposalCompetition.value.trim()) {
@@ -723,8 +786,9 @@ async function generateProposal() {
       competition_name: proposalCompetition.value.trim(),
       technical_keywords: keywords,
     })
-    proposalOutline.value = result.data as unknown as typeof proposalOutline.value
-    proposalNotice.value = '大纲已生成，可以复制或导出'
+    proposalOutline.value = result.data as unknown as ProposalOutline
+    loadProposalChecks()
+    proposalNotice.value = `已按官方九大要素生成 ${proposalOutline.value.sections.length} 段、${proposalTotal.value} 条自检点`
   } catch (reason) {
     proposalNotice.value = reason instanceof Error ? reason.message : '生成失败'
   } finally {
@@ -733,15 +797,24 @@ async function generateProposal() {
 }
 
 function proposalMarkdown(): string {
-  if (!proposalOutline.value) return ''
+  const outline = proposalOutline.value
+  if (!outline) return ''
   const lines = [
-    `# ${proposalOutline.value.project_name} 申报书大纲`,
+    `# ${outline.project_name} 申报书大纲`,
     '',
-    `参赛赛事：${proposalOutline.value.competition_name}`,
-    '',
-    ...proposalOutline.value.sections.map((section, index) => `${index + 1}. ${section}`),
+    `参赛赛事：${outline.competition_name}`,
+    `自检进度：${proposalDone.value} / ${proposalTotal.value}（${proposalPercent.value}%）`,
     '',
   ]
+  for (const section of outline.blueprint) {
+    lines.push(`## ${section.title}`, '', `> 评委看什么：${section.weight_note}`, '')
+    section.checkpoints.forEach((point, index) => {
+      const mark = proposalChecked.value[checkKey(section.id, index)] ? 'x' : ' '
+      lines.push(`- [${mark}] ${point}`)
+    })
+    lines.push('')
+  }
+  if (outline.source_note) lines.push(`---`, outline.source_note, '')
   return lines.join('\n')
 }
 
@@ -750,7 +823,7 @@ async function copyProposal() {
   if (!text) return
   try {
     await navigator.clipboard.writeText(text)
-    proposalNotice.value = '大纲已复制到剪贴板'
+    proposalNotice.value = '大纲与自检清单已复制到剪贴板'
   } catch {
     proposalNotice.value = '浏览器不允许写剪贴板，请手动选中复制'
   }
@@ -767,7 +840,7 @@ function exportProposal() {
   anchor.download = `${proposalOutline.value?.project_name || '申报大纲'}-${stamp}.md`
   anchor.click()
   URL.revokeObjectURL(url)
-  proposalNotice.value = '已导出 Markdown'
+  proposalNotice.value = '已导出 Markdown（含自检勾选状态）'
 }
 
 onMounted(() => {
@@ -1247,9 +1320,36 @@ onMounted(() => {
 
             <div v-if="proposalOutline" class="innx-outline">
               <p class="innx-outline-head">{{ proposalOutline.project_name }} · {{ proposalOutline.competition_name }}</p>
-              <ol>
-                <li v-for="section in proposalOutline.sections" :key="section">{{ section }}</li>
-              </ol>
+
+              <div class="innx-progress">
+                <div class="innx-progress-bar"><i :style="{ width: `${proposalPercent}%` }" /></div>
+                <span>{{ proposalDone }} / {{ proposalTotal }} 条自检点（{{ proposalPercent }}%）</span>
+              </div>
+              <p v-if="proposalEmptySections.length" class="innx-outline-warn">
+                <PhWarningCircle :size="15" /> 一段都没动的：{{ proposalEmptySections.join('、') }}
+              </p>
+              <p v-else-if="proposalTotal" class="innx-outline-ok">九段都动过了，接下来是往每条自检点里填证据。</p>
+
+              <section v-for="section in proposalOutline.blueprint" :key="section.id" class="innx-section">
+                <h4>{{ section.title }}</h4>
+                <p class="innx-weight">评委看什么：{{ section.weight_note }}</p>
+                <ul class="innx-checks">
+                  <li v-for="(point, index) in section.checkpoints" :key="point">
+                    <button
+                      type="button"
+                      :aria-pressed="Boolean(proposalChecked[checkKey(section.id, index)])"
+                      @click="toggleCheck(section.id, index)"
+                    >
+                      <PhCheckCircle v-if="proposalChecked[checkKey(section.id, index)]" :size="17" weight="fill" />
+                      <PhCircle v-else :size="17" />
+                      <span :class="{ 'is-done': proposalChecked[checkKey(section.id, index)] }">{{ point }}</span>
+                    </button>
+                  </li>
+                </ul>
+              </section>
+
+              <p v-if="proposalOutline.source_note" class="innx-outline-source">{{ proposalOutline.source_note }}</p>
+
               <div class="innx-outline-actions">
                 <button type="button" class="innx-mini" @click="copyProposal">复制全文</button>
                 <button type="button" class="innx-mini" @click="exportProposal">导出 Markdown</button>
@@ -1821,6 +1921,130 @@ onMounted(() => {
   color: #3f5350;
   font-size: 12.5px;
   line-height: 1.9;
+}
+
+/* ---------- 九要素自检 ---------- */
+.innx-progress {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.innx-progress-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(47, 74, 69, 0.1);
+  overflow: hidden;
+}
+
+.innx-progress-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2f7a52, #4f9b6d);
+  transition: width 0.25s ease;
+}
+
+.innx-progress span {
+  color: #7b8b86;
+  font-size: 11.5px;
+}
+
+.innx-outline-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 0 0 10px;
+  padding: 7px 9px;
+  border-left: 3px solid #c98a2b;
+  border-radius: 0 7px 7px 0;
+  background: rgba(201, 138, 43, 0.09);
+  color: #8a5c15;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.innx-outline-ok {
+  margin: 0 0 10px;
+  padding: 7px 9px;
+  border-left: 3px solid rgba(47, 122, 82, 0.5);
+  border-radius: 0 7px 7px 0;
+  background: rgba(47, 122, 82, 0.07);
+  color: #2f6b4c;
+  font-size: 11.5px;
+}
+
+.innx-section {
+  padding: 9px 0;
+  border-top: 1px dashed rgba(47, 74, 69, 0.13);
+}
+
+.innx-section:first-of-type {
+  border-top: none;
+}
+
+.innx-section h4 {
+  margin: 0;
+  color: #2f4a45;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.innx-weight {
+  margin: 4px 0 7px;
+  color: #7b8b86;
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+
+.innx-checks {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.innx-checks button {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 0;
+  border: none;
+  background: none;
+  color: #4c6b64;
+  font-size: 11.5px;
+  font-family: inherit;
+  line-height: 1.6;
+  text-align: left;
+  cursor: pointer;
+}
+
+.innx-checks button:hover {
+  color: #2f7a52;
+}
+
+.innx-checks button svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #a8b3af;
+}
+
+.innx-checks button[aria-pressed='true'] svg {
+  color: #2f7a52;
+}
+
+.innx-checks .is-done {
+  color: #a8b3af;
+  text-decoration: line-through;
+}
+
+.innx-outline-source {
+  margin: 10px 0 0;
+  color: #a8b3af;
+  font-size: 11px;
+  line-height: 1.65;
 }
 
 .innx-outline-actions {

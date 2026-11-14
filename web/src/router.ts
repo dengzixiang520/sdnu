@@ -10,6 +10,7 @@ export const router = createRouter({
     { path: '/academic/interview', component: () => import('./components/InterviewRoom.vue'), meta: { section: '学习成长', title: 'AI 模拟复试' } },
     { path: '/academic/notes', component: () => import('./components/AcademicStudio.vue'), meta: { section: '学习成长', title: '笔记整理台' } },
     { path: '/academic/plan', component: () => import('./components/StudyPlan.vue'), meta: { section: '学习成长', title: '学习计划' } },
+    { path: '/academic/credit', component: () => import('./components/AcademicCredit.vue'), meta: { section: '学习成长', title: '学业预警自检' } },
     { path: '/innovation', component: () => import('./components/InnovationLab.vue'), meta: { section: '创新实践', title: '竞赛孵化' } },
     { path: '/documents', component: () => import('./components/DocumentWorkshop.vue'), meta: { section: '效率工具', title: '文档工坊' } },
     { path: '/points', component: () => import('./components/PointsCenter.vue'), meta: { section: '成长激励', title: '积分中心' } },

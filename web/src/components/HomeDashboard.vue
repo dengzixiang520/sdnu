@@ -170,6 +170,19 @@ async function wakeGuide() {
   }
 }
 
+/* 成长导言：每次进来一句，按当前状态选方向（学习动力/情绪管理/目标设定/自我认知），按天换文案。
+   只给情绪能量，不派任务；读不到就整条不显示，不影响其它块。 */
+interface GrowthNote { note: string; tag: string; level: string; checked_today: boolean }
+const growthNote = ref<GrowthNote | null>(null)
+
+async function loadGrowthNote() {
+  try {
+    growthNote.value = (await command('wellbeing', 'growth_note')).data as unknown as GrowthNote
+  } catch {
+    growthNote.value = null
+  }
+}
+
 // ---------------------------------------------------------------- 今日锚点
 
 const dayKey = computed(() => isoDayKey(todayStamp.value))
@@ -548,6 +561,7 @@ onMounted(() => {
   void loadCourses()
   void loadPoints()
   void loadShares()
+  void loadGrowthNote()
 })
 
 onBeforeUnmount(() => {
@@ -575,6 +589,12 @@ onBeforeUnmount(() => {
         <div class="date-chinese">{{ formatDate(now).month }} {{ formatDate(now).weekDay }}</div>
       </div>
     </header>
+
+    <!-- 成长导言：一行字，不派任务，只给情绪能量 -->
+    <section v-if="growthNote" class="dash-growth-note" :class="`is-${growthNote.level}`">
+      <span class="dash-growth-tag">{{ growthNote.tag }}</span>
+      <p>{{ growthNote.note }}</p>
+    </section>
 
     <!-- ① 驾驶舱指标行 -->
     <section class="dash-metrics entrance entrance-top" aria-label="今日指标">
@@ -1000,10 +1020,63 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 
+/* ==================== 成长导言 ==================== */
+.dash-growth-note {
+  display: flex;
+  align-items: baseline;
+  gap: .7rem;
+  margin: 0 0 1.1rem;
+  padding: .7rem 1.1rem;
+  border-left: 3px solid #397f72;
+  border-radius: 0 14px 14px 0;
+  background: rgba(57, 127, 114, .07);
+}
+
+.dash-growth-tag {
+  flex: 0 0 auto;
+  padding: .1rem .55rem;
+  border-radius: 999px;
+  background: rgba(57, 127, 114, .14);
+  color: #2f6b60;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+.dash-growth-note p {
+  margin: 0;
+  color: #2f4a45;
+  font-size: .92rem;
+  line-height: 1.7;
+}
+
+.dash-growth-note.is-yellow {
+  border-left-color: var(--gold);
+  background: rgba(184, 148, 56, .09);
+}
+
+.dash-growth-note.is-yellow .dash-growth-tag {
+  background: rgba(184, 148, 56, .16);
+  color: #8a7433;
+}
+
+.dash-growth-note.is-orange,
+.dash-growth-note.is-red {
+  border-left-color: #b84a30;
+  background: rgba(184, 74, 48, .07);
+}
+
+.dash-growth-note.is-orange .dash-growth-tag,
+.dash-growth-note.is-red .dash-growth-tag {
+  background: rgba(184, 74, 48, .14);
+  color: #8c1d17;
+}
+
 /* ==================== 响应式 ==================== */
 @media (max-width: 620px) {
   .dash-lower { grid-template-columns: 1fr; }
   .dash-card { padding: 1rem; }
   .dash-metric { padding: .9rem 1rem 1rem 1.05rem; }
+  .dash-growth-note { flex-direction: column; gap: .3rem; }
 }
 </style>

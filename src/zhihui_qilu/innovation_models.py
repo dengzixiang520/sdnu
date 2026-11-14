@@ -111,9 +111,25 @@ class TeamMatch(BaseModel):
     matched_skills: list[str]
 
 
+class ProposalSection(BaseModel):
+    """商业计划书的一个评分段落。
+
+    结构对齐中国国际大学生创新大赛（2026）官方九大要素：每段给出
+    「评委在这一段看什么」和可逐条勾选的自检点，前端据此算完成度。
+    """
+
+    id: str
+    title: str
+    weight_note: str
+    checkpoints: list[str] = Field(default_factory=list)
+
+
 class ProposalOutline(BaseModel):
     """Structured outline for a competition or university innovation proposal."""
 
     project_name: str
     competition_name: str
     sections: list[str]
+    blueprint: list[ProposalSection] = Field(default_factory=list)
+    source_note: str = ""
+    checkpoint_total: int = 0

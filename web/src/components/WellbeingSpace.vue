@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, computed } from 'vue'
+import { onBeforeUnmount, onMounted, ref, computed, nextTick } from 'vue'
 import { 
   PhBookOpenText, PhChatCircleDots, PhFirstAid, PhFlowerLotus, PhLockKey, 
   PhPaperPlaneTilt, PhWind, PhWarning, PhNotebook,
-  PhChartLine, PhUsers, PhExport, PhPhoneCall, PhConfetti, PhImage, PhHeart
+  PhChartLine, PhUsers, PhExport, PhPhoneCall, PhConfetti, PhImage, PhHeart, PhClipboardText
 } from '@phosphor-icons/vue'
 import { command } from '../api'
 import { useIdentity } from '../identity'
@@ -417,6 +417,80 @@ async function requestBooking() {
   } catch (reason) {
     bookingNotice.value = reason instanceof Error ? reason.message : '提交失败，请稍后再试'
   }
+}
+
+/* ---------- 4 题极简自评（PHQ-2 + GAD-2） ----------
+   题目由后端给（wellbeing/self_check_items），前端不硬编码，改题库只改一处。
+   结果只提示「要不要找专业的人聊聊」，不做诊断、不打标签。 */
+interface SelfCheckItem { id: string; text: string; group: string }
+interface SelfCheckOption { value: number; label: string }
+interface SelfCheckMeta { window: string; items: SelfCheckItem[]; options: SelfCheckOption[]; disclaimer: string }
+interface SelfCheckResult {
+  level: 'green' | 'yellow' | 'orange'
+  phq2: number
+  gad2: number
+  total: number
+  focus: string
+  advice: string
+  recommend_booking: boolean
+  hotline: string
+  window: string
+  disclaimer: string
+}
+
+const selfCheckMeta = ref<SelfCheckMeta | null>(null)
+const selfCheckAnswers = ref<Record<string, number>>({})
+const selfCheckResult = ref<SelfCheckResult | null>(null)
+const selfCheckBusy = ref(false)
+const selfCheckNotice = ref('')
+
+async function loadSelfCheck() {
+  if (selfCheckMeta.value) return
+  try {
+    const response = await command('wellbeing', 'self_check_items')
+    selfCheckMeta.value = response.data as unknown as SelfCheckMeta
+  } catch (reason) {
+    selfCheckNotice.value = reason instanceof Error ? reason.message : '题目加载失败'
+  }
+}
+
+function pickSelfCheck(id: string, value: number) {
+  selfCheckAnswers.value = { ...selfCheckAnswers.value, [id]: value }
+}
+
+const selfCheckReady = computed(() => {
+  const items = selfCheckMeta.value?.items ?? []
+  return items.length > 0 && items.every((item) => typeof selfCheckAnswers.value[item.id] === 'number')
+})
+
+async function submitSelfCheck() {
+  if (!selfCheckReady.value) {
+    selfCheckNotice.value = '四道题都要选一个'
+    return
+  }
+  selfCheckBusy.value = true
+  selfCheckNotice.value = ''
+  try {
+    const response = await command('wellbeing', 'submit_self_check', '', { answers: selfCheckAnswers.value })
+    selfCheckResult.value = response.data as unknown as SelfCheckResult
+    // 自评建议预约时直接打开上面那张预约卡：别让人拿到建议还得自己找入口
+    if (selfCheckResult.value.recommend_booking) {
+      bookingSuggested.value = true
+      bookingNotice.value = '自评结果建议约一次，选一个时段就行'
+      await nextTick()
+      document.querySelector('.wbx-booking')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  } catch (reason) {
+    selfCheckNotice.value = reason instanceof Error ? reason.message : '提交失败'
+  } finally {
+    selfCheckBusy.value = false
+  }
+}
+
+function resetSelfCheck() {
+  selfCheckAnswers.value = {}
+  selfCheckResult.value = null
+  selfCheckNotice.value = ''
 }
 
 /* ---------- 心情不好时的疏导动作 ---------- */
@@ -1065,6 +1139,7 @@ onMounted(() => {
     fetchSoothe()
     seedJournalToday()
     loadJournalMemory()
+    void loadSelfCheck()
   }
   if (isStaff.value) {
     fetchAlerts()
@@ -1272,6 +1347,63 @@ onBeforeUnmount(() => clearBreathTimer())
             </div>
           </li>
         </ul>
+      </article>
+
+      <!-- 4 题极简自评：PHQ-2 + GAD-2，只提示要不要找专业人聊，不做诊断 -->
+      <article class="wbx-selfcheck">
+        <header class="wbx-card-head">
+          <div><PhClipboardText :size="22" weight="duotone" /><h2>四道题，看看要不要找人聊聊</h2></div>
+          <span class="wbx-selfcheck-window">{{ selfCheckMeta?.window ?? '最近两周' }}</span>
+        </header>
+
+        <template v-if="!selfCheckResult">
+          <p class="wbx-selfcheck-hint">
+            PHQ-2 与 GAD-2 是高校心理普测里常用的超短筛查工具。答案只进你自己的记录，辅导员看不到题目和选项。
+          </p>
+          <p v-if="!selfCheckMeta" class="wbx-note">{{ selfCheckNotice || '正在读取题目…' }}</p>
+          <ul v-else class="wbx-selfcheck-list">
+            <li v-for="(item, index) in selfCheckMeta.items" :key="item.id">
+              <p class="wbx-selfcheck-q"><b>{{ index + 1 }}</b>{{ item.text }}</p>
+              <div class="wbx-selfcheck-options">
+                <button
+                  v-for="option in selfCheckMeta.options"
+                  :key="option.value"
+                  type="button"
+                  :class="{ chosen: selfCheckAnswers[item.id] === option.value }"
+                  @click="pickSelfCheck(item.id, option.value)"
+                >{{ option.label }}</button>
+              </div>
+            </li>
+          </ul>
+          <div v-if="selfCheckMeta" class="wbx-selfcheck-foot">
+            <button
+              type="button"
+              class="wbx-selfcheck-submit"
+              :disabled="selfCheckBusy || !selfCheckReady"
+              @click="submitSelfCheck"
+            >{{ selfCheckBusy ? '正在算…' : '看结果' }}</button>
+            <span>{{ Object.keys(selfCheckAnswers).length }} / {{ selfCheckMeta.items.length }} 题已选</span>
+          </div>
+          <p class="wbx-selfcheck-note">{{ selfCheckMeta?.disclaimer ?? '这是筛查工具，不是诊断。' }}</p>
+        </template>
+
+        <template v-else>
+          <div class="wbx-selfcheck-result" :class="`is-${selfCheckResult.level}`">
+            <strong>{{ selfCheckResult.advice }}</strong>
+            <div class="wbx-selfcheck-scores">
+              <span>情绪 {{ selfCheckResult.phq2 }} / 6</span>
+              <span>紧张担忧 {{ selfCheckResult.gad2 }} / 6</span>
+              <span>合计 {{ selfCheckResult.total }} / 12</span>
+            </div>
+          </div>
+          <p v-if="selfCheckResult.recommend_booking" class="wbx-selfcheck-hotline">
+            现在就能约：<b>学校心理中心</b>；夜里不方便的话可以打 {{ selfCheckResult.hotline }}。
+          </p>
+          <p class="wbx-selfcheck-note">{{ selfCheckResult.disclaimer }}</p>
+          <div class="wbx-selfcheck-foot">
+            <button type="button" class="wbx-selfcheck-submit" @click="resetSelfCheck">再测一次</button>
+          </div>
+        </template>
       </article>
 
       <!-- 学生专属：情绪复盘（原来的「走势图 + 心情日历」是同一份数据的两种画法，合并成一块） -->
@@ -1754,6 +1886,73 @@ onBeforeUnmount(() => clearBreathTimer())
 }
 .wbx-journal-echo small { color: #8a7433; font-size: .7rem; font-weight: 700; }
 .wbx-journal-echo p { margin: .2rem 0 0; color: #5c5340; font-size: .8rem; line-height: 1.65; }
+
+/* ===== 4 题极简自评 ===== */
+.wbx-selfcheck {
+  padding: 20px 22px;
+  background: var(--paper);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+.wbx-selfcheck-window {
+  padding: .15rem .6rem; border-radius: 999px;
+  background: rgba(47,74,69,.08); color: #5d726c; font-size: .72rem; font-weight: 700;
+}
+.wbx-selfcheck-hint {
+  margin: .5rem 0 0; color: #6d7d78; font-size: .8rem; line-height: 1.7;
+}
+.wbx-selfcheck-list { display: grid; gap: .85rem; margin: .9rem 0 0; padding: 0; list-style: none; }
+.wbx-selfcheck-q {
+  display: flex; align-items: flex-start; gap: .45rem;
+  margin: 0 0 .4rem; color: var(--ink); font-size: .86rem; line-height: 1.6;
+}
+.wbx-selfcheck-q b {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 1.15rem; height: 1.15rem; margin-top: .1rem; border-radius: 50%;
+  background: rgba(47,122,82,.12); color: #2f7a52; font-size: .7rem;
+}
+.wbx-selfcheck-options { display: flex; flex-wrap: wrap; gap: .35rem; padding-left: 1.6rem; }
+.wbx-selfcheck-options button {
+  padding: .3rem .7rem; border: 1px solid rgba(47,74,69,.16); border-radius: 999px;
+  background: transparent; color: #5d726c; font-size: .76rem; font-family: inherit; cursor: pointer;
+}
+.wbx-selfcheck-options button:hover { border-color: rgba(47,122,82,.4); color: #2f7a52; }
+.wbx-selfcheck-options button.chosen {
+  border-color: #2f7a52; background: rgba(47,122,82,.12); color: #2f7a52; font-weight: 700;
+}
+.wbx-selfcheck-foot {
+  display: flex; align-items: center; gap: .7rem; margin-top: 1rem;
+  color: #8a9994; font-size: .75rem;
+}
+.wbx-selfcheck-submit {
+  padding: .45rem 1.1rem; border: none; border-radius: 10px;
+  background: #2f7a52; color: #fff; font-size: .82rem; font-family: inherit; cursor: pointer;
+}
+.wbx-selfcheck-submit:disabled { opacity: .55; cursor: default; }
+.wbx-selfcheck-note { margin: .7rem 0 0; color: #a8b3af; font-size: .72rem; line-height: 1.65; }
+.wbx-selfcheck-result {
+  margin-top: .8rem; padding: .8rem .9rem;
+  border-left: 3px solid #2f7a52; border-radius: 0 10px 10px 0;
+  background: rgba(47,122,82,.07);
+}
+.wbx-selfcheck-result.is-yellow {
+  border-left-color: #c98a2b; background: rgba(201,138,43,.09);
+}
+.wbx-selfcheck-result.is-orange {
+  border-left-color: #b84a30; background: rgba(184,74,48,.08);
+}
+.wbx-selfcheck-result strong { display: block; color: var(--ink); font-size: .86rem; line-height: 1.7; }
+.wbx-selfcheck-scores {
+  display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem;
+  color: #6d7d78; font-size: .74rem;
+}
+.wbx-selfcheck-scores span {
+  padding: .1rem .5rem; border-radius: 999px; background: rgba(255,255,255,.7);
+}
+.wbx-selfcheck-hotline {
+  margin: .7rem 0 0; padding: .55rem .8rem; border-radius: 9px;
+  background: rgba(184,74,48,.07); color: #8c1d17; font-size: .78rem; line-height: 1.7;
+}
 
 @media (max-width: 720px) {
   .wbx-breath-card { align-items: center; }
