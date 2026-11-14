@@ -13,14 +13,24 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
+  PhArrowDownRight,
   PhArrowLeft,
+  PhArrowUpRight,
   PhArrowsOut,
+  PhCaretDown,
+  PhCaretUp,
+  PhChartLine,
   PhCheckCircle,
   PhCircleNotch,
+  PhClockCounterClockwise,
+  PhDownloadSimple,
+  PhFileCode,
   PhMicrophone,
   PhMicrophoneSlash,
   PhPlay,
   PhStop,
+  PhTimer,
+  PhTrash,
   PhVideoCamera,
   PhVideoCameraSlash,
   PhWaveform,
@@ -121,6 +131,42 @@ interface InterviewReport {
   fixes: string[]
 }
 
+/** 压进 localStorage 的历史场次，字段刻意收窄：只留对比用得上的数字。 */
+interface HistoryEntry {
+  at: string
+  overall: number
+  grade: string
+  dimensions: Array<{ key: string; score: number }>
+  speech: { chars_per_min: number; filler_rate: number; speech_ratio: number }
+}
+
+/** 语速曲线上的一个点：坐标在 computed 里一次算好，模板只负责画。 */
+interface PacePoint {
+  no: number
+  rate: number
+  x: number
+  y: number
+  tone: 'slow' | 'fit' | 'fast'
+  labelY: number
+  tagY: number
+}
+
+interface PaceChart {
+  width: number
+  height: number
+  left: number
+  right: number
+  baseline: number
+  single: boolean
+  band: { y: number; height: number }
+  refs: number[]
+  ticks: Array<{ value: number; y: number }>
+  points: PacePoint[]
+  path: string
+  /** 只有 1 题时画的那根竖条；多题时为 null。 */
+  bar: { x: number; y: number; width: number; height: number } | null
+}
+
 /* ------------------------------------------------------------------ 状态 */
 
 type Stage = 'lobby' | 'live' | 'report'
@@ -202,9 +248,63 @@ const micChecking = ref(false)
 const micSampleUrl = ref('')
 const micSamplePlaying = ref(false)
 
+/* ------------------------------------------------- 新增状态：计时 / 历史 / 导出 */
+
+/**
+ * 本题计时（毫秒）。
+ *
+ * 只读 phase 与 lab.recording，从不写它们——录音链路的控制权仍然完全在 useSpeechLab 手里。
+ * 阶段一变或录音一停就清 interval，卸载时由 leave() 兜底。
+ */
+const answerClockMs = ref(0)
+let answerClockTimer: number | undefined
+let answerClockBase = 0
+
+/** 历史场次：新→旧，最多 10 场。 */
+const HISTORY_KEY = 'zhq-interview-history-v1'
+const HISTORY_LIMIT = 10
+/** 语速曲线的理想区间（需求口径 200–260；后端维度文案写的是 190–270）。 */
+/* 与后端 interview_service.py 的语速评分区间保持一致，避免同一页出现
+   「曲线标偏快、语速维度说舒适」的矛盾。 */
+const PACE_BAND_LOW = 190
+const PACE_BAND_HIGH = 270
+/** 历史维度只有 key，没回 label 时用它兜底。 */
+const DIM_LABELS: Record<string, string> = {
+  pace: '语速节奏',
+  pause: '停顿控制',
+  fluency: '表达干净度',
+  presence: '音量与气场',
+  composure: '临场应变',
+  content: '内容密度',
+}
+
+const historyEntries = ref<HistoryEntry[]>([])
+const historyOpen = ref(false)
+const historyExpandedAt = ref('')
+const clearArmed = ref(false)
+/** 同一份报告只入历史一次，避免重复渲染把一次成绩记成两场。 */
+let historyRecorded = false
+/** 导出用的 objectURL 回收定时器，卸载时要清掉。 */
+let downloadUrlTimer: number | undefined
+/** 「已导出 …」提示的自动消失定时器，同样要清。 */
+let noticeTimer: number | undefined
+
 /* ------------------------------------------------------------------ 派生 */
 
 const activeExaminer = computed(() => examiners.value.find((item) => item.id === turn.value?.examiner) ?? examiners.value[0])
+
+/** 写到 3D 教室后墙黑板上的内容：当前第几题、谁在问、问什么。 */
+const boardContent = computed(() => {
+  const current = turn.value
+  if (!current) return null
+  return {
+    speaker: current.examiner_name,
+    intent: current.intent,
+    question: current.question,
+    step: current.step + 1,
+    total: current.total,
+  }
+})
 const progress = computed(() => {
   const total = turn.value?.total ?? plan.value.length ?? 1
   return Math.min(100, Math.round((stepIndex.value / Math.max(1, total)) * 100))
@@ -228,6 +328,78 @@ const liveRateTone = computed(() => {
   return 'good'
 })
 const canFinish = computed(() => answers.value.length > 0 && !busy.value)
+
+/* ------------------------------------------------------------ 答题计时器 */
+
+const answerClockVisible = computed(() => stage.value === 'live' && phase.value === 'answer')
+
+const answerClockText = computed(() => {
+  const total = Math.floor(answerClockMs.value / 1000)
+  const mm = String(Math.floor(total / 60)).padStart(2, '0')
+  const ss = String(total % 60).padStart(2, '0')
+  return `${mm}:${ss}`
+})
+
+/** 90 秒转黄、150 秒转红——和「建议控制在 2 分钟内」的提示配套。 */
+const answerClockTone = computed(() => {
+  const seconds = answerClockMs.value / 1000
+  if (seconds > 150) return 'over'
+  if (seconds > 90) return 'warn'
+  return 'ok'
+})
+
+const answerClockHint = computed(() => (answerClockMs.value / 1000 > 150 ? '建议控制在 2 分钟内' : ''))
+
+function tickAnswerClock(): void {
+  answerClockMs.value = performance.now() - answerClockBase
+}
+
+function startAnswerClock(): void {
+  stopAnswerClock()
+  answerClockMs.value = 0
+  answerClockBase = performance.now()
+  answerClockTimer = window.setInterval(tickAnswerClock, 100)
+}
+
+function stopAnswerClock(): void {
+  if (answerClockTimer !== undefined) {
+    window.clearInterval(answerClockTimer)
+    answerClockTimer = undefined
+  }
+}
+
+/** 归零并停表：换题、离场、卸载都走这里，保证不会有 interval 活过组件。 */
+function resetAnswerClock(): void {
+  stopAnswerClock()
+  answerClockMs.value = 0
+}
+
+/**
+ * 计时器的开关逻辑：只有「答题阶段 + 正在收音」两个条件同时成立才走表。
+ *
+ * 单独抽出来是为了能脱离组件直接验证这张状态转移表：
+ *   answer+录音  → 开始（已在走则不重复建 interval）
+ *   answer+停录  → 停表、保留读数
+ *   其他任何阶段 → 停表 + 归零
+ */
+function syncAnswerClock(nowPhase: Phase, recording: boolean): void {
+  if (nowPhase === 'answer' && recording) {
+    if (answerClockTimer === undefined) startAnswerClock()
+    return
+  }
+  stopAnswerClock()
+  if (nowPhase !== 'answer') answerClockMs.value = 0
+}
+
+/**
+ * 计时器唯一的驱动源：phase 与 lab.recording。
+ *
+ * 只读这两个值，不写它们——录音链路的控制权仍然完全在 useSpeechLab 手里。
+ */
+watch(
+  () => [phase.value, lab.recording.value] as const,
+  ([nowPhase, recording]) => syncAnswerClock(nowPhase, recording),
+)
 
 /* ------------------------------------------------------------------ 面板 */
 
@@ -764,9 +936,10 @@ async function finishInterview(): Promise<void> {
   lab.abortAnswer()
   lab.closeMic()
   window.clearInterval(timer)
+  resetAnswerClock()
   await exitFullscreen()
   try {
-    report.value = await requestJson<InterviewReport>(
+    const fresh = await requestJson<InterviewReport>(
       '/api/v1/interview/report',
       {
         method: 'POST',
@@ -775,6 +948,8 @@ async function finishInterview(): Promise<void> {
       },
       '复盘报告生成失败',
     )
+    report.value = fresh
+    recordHistory(fresh)
     stage.value = 'report'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '复盘报告生成失败'
@@ -801,6 +976,11 @@ function restart(): void {
   error.value = ''
   notice.value = ''
   manualOpen.value = false
+  // 新一场要重新入历史；清空历史的二次确认也归位
+  resetAnswerClock()
+  historyRecorded = false
+  clearArmed.value = false
+  historyExpandedAt.value = ''
 }
 
 function leave(): void {
@@ -809,7 +989,333 @@ function leave(): void {
   stopCamera()
   window.clearInterval(timer)
   window.speechSynthesis?.cancel()
+  // 计时器与导出用的 objectURL 定时器都在这里收尾，卸载后不留活着的 interval
+  resetAnswerClock()
+  if (downloadUrlTimer !== undefined) {
+    window.clearTimeout(downloadUrlTimer)
+    downloadUrlTimer = undefined
+  }
+  if (noticeTimer !== undefined) {
+    window.clearTimeout(noticeTimer)
+    noticeTimer = undefined
+  }
   void exitFullscreen()
+}
+
+/* ------------------------------------------------- 语速曲线（SVG 手写） */
+
+/**
+ * 逐题语速曲线。
+ *
+ * 数据来源就是报告里的 report.answers[].chars_per_min（后端按「有效字数 / 有效说话时长」算的），
+ * 不再自己重算一遍，保证曲线和逐题复盘卡片上的数字完全一致。
+ * 0 字/分表示这题没测到人声，直接跳过——画在 0 上会读成「说得极慢」，是错的。
+ */
+const paceChart = computed<PaceChart | null>(() => {
+  const rows = (report.value?.answers ?? [])
+    .filter((item) => item.chars_per_min > 0)
+    .map((item) => ({ no: item.index + 1, rate: item.chars_per_min }))
+  if (!rows.length) return null
+
+  const width = 680
+  const height = 216
+  const left = 46
+  const right = 18
+  const top = 26
+  const bottom = 36
+  const innerW = width - left - right
+  const innerH = height - top - bottom
+  const baseline = top + innerH
+  const peak = Math.max(PACE_BAND_HIGH, ...rows.map((row) => row.rate))
+  const yMax = Math.max(300, Math.ceil((peak + 40) / 50) * 50)
+  /** 坐标保留两位：SVG 属性里不出现 79.89999999999999 这种浮点噪声。 */
+  const round2 = (value: number): number => Math.round(value * 100) / 100
+  const yOf = (rate: number): number => round2(top + innerH - (Math.min(yMax, Math.max(0, rate)) / yMax) * innerH)
+  const toneOf = (rate: number): PacePoint['tone'] =>
+    rate < PACE_BAND_LOW ? 'slow' : rate > PACE_BAND_HIGH ? 'fast' : 'fit'
+  const single = rows.length === 1
+
+  const points: PacePoint[] = rows.map((row, index) => {
+    const x = round2(single ? left + innerW / 2 : left + (innerW * index) / (rows.length - 1))
+    const y = yOf(row.rate)
+    return {
+      no: row.no,
+      rate: row.rate,
+      x,
+      y,
+      tone: toneOf(row.rate),
+      labelY: Math.max(top - 8, y - 9),
+      tagY: Math.max(12, y - 22),
+    }
+  })
+
+  const ticks: Array<{ value: number; y: number }> = []
+  for (let value = 0; value <= yMax; value += 100) ticks.push({ value, y: yOf(value) })
+
+  return {
+    width,
+    height,
+    left,
+    right,
+    baseline,
+    single,
+    band: { y: yOf(PACE_BAND_HIGH), height: round2(yOf(PACE_BAND_LOW) - yOf(PACE_BAND_HIGH)) },
+    refs: [yOf(PACE_BAND_LOW), yOf(PACE_BAND_HIGH)],
+    ticks,
+    points,
+    path: points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' '),
+    bar: single
+      ? {
+          x: round2(points[0].x - 16),
+          y: points[0].y,
+          width: 32,
+          height: Math.max(2, round2(baseline - points[0].y)),
+        }
+      : null,
+  }
+})
+
+/** 图下那句自动结论：只挑最出格的一题说，别把七句话堆在一起。 */
+const paceConclusion = computed(() => {
+  const chart = paceChart.value
+  if (!chart) return ''
+  const fast = chart.points.filter((point) => point.rate > PACE_BAND_HIGH).sort((a, b) => b.rate - a.rate)[0]
+  const slow = chart.points.filter((point) => point.rate < PACE_BAND_LOW).sort((a, b) => a.rate - b.rate)[0]
+  const parts: string[] = []
+  if (fast) parts.push(`第 ${fast.no} 题语速 ${fast.rate} 字/分明显偏快，建议放慢，句末留半拍再换气`)
+  if (slow) parts.push(`第 ${slow.no} 题语速 ${slow.rate} 字/分偏慢，内容容易显得拖沓，可以稍微加快`)
+  if (parts.length) return `${parts.join('；')}。`
+  return `${chart.points.length} 题语速都落在 ${PACE_BAND_LOW}–${PACE_BAND_HIGH} 字/分的舒适区间，节奏控制得不错。`
+})
+
+/* ------------------------------------------------------ 历史场次对比 */
+
+function isHistoryEntry(value: unknown): value is HistoryEntry {
+  if (!value || typeof value !== 'object') return false
+  const row = value as Partial<HistoryEntry>
+  return (
+    typeof row.at === 'string' &&
+    typeof row.overall === 'number' &&
+    typeof row.grade === 'string' &&
+    Array.isArray(row.dimensions)
+  )
+}
+
+function loadHistory(): void {
+  try {
+    const raw = window.localStorage.getItem(HISTORY_KEY)
+    if (!raw) {
+      historyEntries.value = []
+      return
+    }
+    const parsed: unknown = JSON.parse(raw)
+    historyEntries.value = Array.isArray(parsed) ? parsed.filter(isHistoryEntry).slice(0, HISTORY_LIMIT) : []
+  } catch {
+    // 存储被禁用（隐私模式）或内容损坏：当作没有历史，报告本身照常看
+    historyEntries.value = []
+  }
+}
+
+/** 报告落地后立刻记一场。同一份报告只记一次。 */
+function recordHistory(current: InterviewReport): void {
+  if (historyRecorded) return
+  historyRecorded = true
+  const entry: HistoryEntry = {
+    at: new Date().toISOString(),
+    overall: current.overall,
+    grade: current.grade,
+    dimensions: (current.dimensions ?? []).map((dim) => ({ key: dim.key, score: dim.score })),
+    speech: {
+      chars_per_min: current.speech?.chars_per_min ?? 0,
+      filler_rate: current.speech?.filler_rate ?? 0,
+      speech_ratio: current.speech?.speech_ratio ?? 0,
+    },
+  }
+  const next = [entry, ...historyEntries.value].slice(0, HISTORY_LIMIT)
+  historyEntries.value = next
+  try {
+    window.localStorage.setItem(HISTORY_KEY, JSON.stringify(next))
+  } catch {
+    // 配额满或被禁用：本次对比仍能在内存里显示，只是下次进来会丢
+  }
+}
+
+const historyDelta = computed(() => {
+  if (historyEntries.value.length < 2) return null
+  const current = historyEntries.value[0]
+  const previous = historyEntries.value[1]
+  return { diff: current.overall - previous.overall, prev: previous.overall, at: previous.at }
+})
+
+/** 10 场总分的迷你折线：只有点和线，没有坐标轴。 */
+const historySpark = computed(() => {
+  const rows = [...historyEntries.value].reverse()
+  if (rows.length < 2) return null
+  const width = 240
+  const height = 54
+  const pad = 7
+  const scores = rows.map((row) => row.overall)
+  const min = Math.min(...scores)
+  const max = Math.max(...scores)
+  const span = max - min
+  const points = rows.map((row, index) => ({
+    x: pad + ((width - pad * 2) * index) / (rows.length - 1),
+    y: span === 0 ? height / 2 : pad + (height - pad * 2) * (1 - (row.overall - min) / span),
+    last: index === rows.length - 1,
+  }))
+  return {
+    width,
+    height,
+    points,
+    path: points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' '),
+  }
+})
+
+function dimLabel(key: string): string {
+  const hit = report.value?.dimensions?.find((dim) => dim.key === key)
+  return hit?.label ?? DIM_LABELS[key] ?? key
+}
+
+function toggleHistoryOpen(): void {
+  historyOpen.value = !historyOpen.value
+  if (!historyOpen.value) historyExpandedAt.value = ''
+  clearArmed.value = false
+}
+
+function toggleHistoryEntry(at: string): void {
+  historyExpandedAt.value = historyExpandedAt.value === at ? '' : at
+}
+
+/** 两段式清空：第一下改成确认，避免演示时误触把历史点没。 */
+function clearHistory(): void {
+  if (!clearArmed.value) {
+    clearArmed.value = true
+    return
+  }
+  clearArmed.value = false
+  historyEntries.value = []
+  historyOpen.value = false
+  historyExpandedAt.value = ''
+  try {
+    window.localStorage.removeItem(HISTORY_KEY)
+  } catch {
+    // 存储不可用：内存里已经清空，界面表现一致
+  }
+}
+
+/* ------------------------------------------------------------ 报告导出 */
+
+function formatStamp(input: string | number | Date): string {
+  const date = input instanceof Date ? input : new Date(input)
+  if (Number.isNaN(date.getTime())) return String(input)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function stampForFilename(date: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}`
+}
+
+/** Markdown 表格里不能有换行和裸竖线。 */
+function mdEscape(text: string): string {
+  return String(text ?? '')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\|/g, '\\|')
+    .trim()
+}
+
+function buildReportMarkdown(current: InterviewReport, at: Date): string {
+  const lines: string[] = []
+  const speech = current.speech
+  lines.push('# AI 模拟复试报告', '')
+  lines.push(`时间：${formatStamp(at)}`)
+  lines.push(`综合得分：${current.overall} / 100　等级：${current.grade}`)
+  if (current.headline) lines.push(mdEscape(current.headline))
+  lines.push('', '## 五维评估', '')
+  lines.push('| 维度 | 得分 | 依据 | 建议 |')
+  lines.push('|---|---|---|---|')
+  for (const dim of current.dimensions ?? []) {
+    lines.push(`| ${mdEscape(dim.label)} | ${dim.score} | ${mdEscape(dim.evidence)} | ${mdEscape(dim.advice)} |`)
+  }
+  lines.push('', '## 语音表现', '')
+  lines.push(`- 总时长：${speech.total_seconds} 秒`)
+  lines.push(`- 有效表达占比：${speech.speech_ratio}%`)
+  lines.push(`- 平均语速：${speech.chars_per_min} 字/分`)
+  lines.push(`- 填充词：${speech.filler_total} 次（占比 ${speech.filler_rate}%，按每百字计）`)
+  lines.push(`- 最长停顿：${speech.longest_pause_ms} ms`)
+  lines.push(`- 停顿次数：${speech.pause_count} 次`)
+  lines.push(`- 开口延迟：${(speech.latency_ms / 1000).toFixed(1)} 秒`)
+  lines.push(`- 平均音量：${speech.avg_volume} / 100（稳定性 ${speech.volume_stability} / 100）`)
+  lines.push('', '## 逐题复盘', '')
+  for (const item of current.answers ?? []) {
+    lines.push(`### 第 ${item.index + 1} 题 · ${item.examiner_name}`, '')
+    lines.push(`**问：** ${mdEscape(item.question)}`)
+    lines.push(`**答：** ${item.transcript ? mdEscape(item.transcript) : '（本题没有识别到语音内容）'}`)
+    lines.push(
+      `**评：** ${item.verdict}（${item.chars_per_min} 字/分，停顿 ${item.pause_count} 次，最长 ${(item.longest_pause_ms / 1000).toFixed(1)} 秒）`,
+    )
+    lines.push('')
+  }
+  lines.push('## 亮点', '')
+  if ((current.highlights ?? []).length) {
+    for (const line of current.highlights) lines.push(`- ${mdEscape(line)}`)
+  } else {
+    lines.push('- （本场没有记录到亮点）')
+  }
+  lines.push('', '## 待改进', '')
+  if ((current.fixes ?? []).length) {
+    for (const line of current.fixes) lines.push(`- ${mdEscape(line)}`)
+  } else {
+    lines.push('- （本场没有待改进项）')
+  }
+  lines.push('')
+  return lines.join('\n')
+}
+
+function downloadText(filename: string, text: string, mime: string): void {
+  const blob = new Blob([text], { type: `${mime};charset=utf-8` })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.style.display = 'none'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  // 立刻回收会让部分浏览器来不及取数据，延后一点并记住这个定时器
+  if (downloadUrlTimer !== undefined) window.clearTimeout(downloadUrlTimer)
+  downloadUrlTimer = window.setTimeout(() => {
+    URL.revokeObjectURL(url)
+    downloadUrlTimer = undefined
+  }, 1200)
+}
+
+/** 提示只挂两秒多就走，不然会一直压在报告页顶上。 */
+function flashNotice(text: string): void {
+  notice.value = text
+  if (noticeTimer !== undefined) window.clearTimeout(noticeTimer)
+  noticeTimer = window.setTimeout(() => {
+    noticeTimer = undefined
+    if (notice.value === text) notice.value = ''
+  }, 2600)
+}
+
+function exportReportMarkdown(): void {
+  const current = report.value
+  if (!current) return
+  const now = new Date()
+  const name = `复试报告-${stampForFilename(now)}.md`
+  downloadText(name, buildReportMarkdown(current, now), 'text/markdown')
+  flashNotice(`已导出 ${name}`)
+}
+
+function exportReportJson(): void {
+  const current = report.value
+  if (!current) return
+  const name = `复试报告-${stampForFilename(new Date())}.json`
+  downloadText(name, JSON.stringify(current, null, 2), 'application/json')
+  flashNotice(`已导出 ${name}`)
 }
 
 /* ------------------------------------------------------------------ 生命周期 */
@@ -822,6 +1328,7 @@ onMounted(() => {
   document.addEventListener('fullscreenchange', onFullscreenChange)
   // 沉浸式页面：隐藏全局引导员并锁滚动，避免和 3D 场景抢视觉
   document.body.classList.add('iv-immersive')
+  loadHistory()
   void loadPanel()
 })
 
@@ -835,7 +1342,7 @@ onBeforeUnmount(() => {
 <template>
   <div ref="root" class="iv-root" :class="[`is-${stage}`, { 'is-fullscreen': fullscreen }]">
     <!-- 3D 教室始终在渲染：大厅阶段就已经能看见教室，进入后直接接管全屏 -->
-    <ClassroomScene class="iv-scene" :speaking="speaking" :phase="phase" />
+    <ClassroomScene class="iv-scene" :speaking="speaking" :phase="phase" :stage="stage" :board="boardContent" />
 
     <!-- 顶栏 -->
     <header class="iv-hud">
@@ -854,6 +1361,12 @@ onBeforeUnmount(() => {
           <i :style="{ width: `${progress}%` }" />
         </div>
         <span v-if="stage === 'live' && turn" class="iv-step">第 {{ stepIndex + 1 }} / {{ turn.total }} 题</span>
+        <!-- 答题计时：只在答题阶段出现，贴在 HUD 里，不挡考官也不挡字幕 -->
+        <div v-if="answerClockVisible" class="ivx-timer" :class="answerClockTone">
+          <PhTimer :size="14" />
+          <b>{{ answerClockText }}</b>
+          <em v-if="answerClockHint">{{ answerClockHint }}</em>
+        </div>
       </div>
       <div class="iv-hud-right">
         <span class="iv-flag" :class="{ on: cameraOn }">
@@ -1113,12 +1626,90 @@ onBeforeUnmount(() => {
             <p>{{ report?.headline ?? '正在生成复盘…' }}</p>
           </div>
           <div class="iv-report-actions">
+            <div class="ivx-export">
+              <button type="button" class="iv-ghost" :disabled="!report" @click="exportReportMarkdown">
+                <PhDownloadSimple :size="15" /> 导出 Markdown
+              </button>
+              <button type="button" class="iv-ghost" :disabled="!report" @click="exportReportJson">
+                <PhFileCode :size="15" /> 导出 JSON
+              </button>
+            </div>
             <button type="button" class="iv-ghost" @click="restart">再练一次</button>
             <RouterLink to="/academic" class="iv-primary" @click="leave">返回功能选择</RouterLink>
           </div>
         </header>
 
         <template v-if="report">
+          <!-- 历史对比：本次 vs 上次 + 近 10 场总分迷你折线 + 全部场次 -->
+          <section class="ivx-history">
+            <header class="ivx-history-head">
+              <strong><PhClockCounterClockwise :size="15" /> 历史对比</strong>
+              <div class="ivx-history-tools">
+                <button v-if="historyEntries.length" type="button" class="ivx-link" @click="toggleHistoryOpen">
+                  {{ historyOpen ? '收起场次' : '查看全部场次' }}
+                  <component :is="historyOpen ? PhCaretUp : PhCaretDown" :size="12" />
+                </button>
+                <button v-if="historyEntries.length" type="button" class="ivx-link danger" @click="clearHistory">
+                  <PhTrash :size="12" />
+                  {{ clearArmed ? '再点一次确认清空' : '清空历史' }}
+                </button>
+              </div>
+            </header>
+
+            <p v-if="!historyEntries.length" class="ivx-history-empty">历史已清空，下次练完会重新记录。</p>
+
+            <div v-else class="ivx-history-body">
+              <div class="ivx-history-delta">
+                <template v-if="historyDelta">
+                  <span>本次 <b>{{ historyEntries[0].overall }}</b> 分</span>
+                  <em :class="historyDelta.diff >= 0 ? 'up' : 'down'">
+                    <component :is="historyDelta.diff >= 0 ? PhArrowUpRight : PhArrowDownRight" :size="14" />
+                    {{ historyDelta.diff >= 0 ? '+' : '' }}{{ historyDelta.diff }}
+                  </em>
+                  <span class="ivx-history-prev">上次 {{ historyDelta.prev }} 分 · {{ formatStamp(historyDelta.at) }}</span>
+                </template>
+                <span v-else class="ivx-history-first">这是你的第 1 场，下次会在这里看到进步</span>
+              </div>
+
+              <svg
+                v-if="historySpark"
+                class="ivx-spark"
+                :viewBox="`0 0 ${historySpark.width} ${historySpark.height}`"
+                role="img"
+                aria-label="最近场次总分走势"
+              >
+                <path :d="historySpark.path" class="ivx-spark-line" />
+                <circle
+                  v-for="(point, index) in historySpark.points"
+                  :key="`spark${index}`"
+                  :cx="point.x"
+                  :cy="point.y"
+                  r="3"
+                  class="ivx-spark-dot"
+                  :class="{ last: point.last }"
+                />
+              </svg>
+              <span v-if="historySpark" class="ivx-history-count">最近 {{ historyEntries.length }} 场</span>
+            </div>
+
+            <ol v-if="historyOpen && historyEntries.length" class="ivx-history-list">
+              <li v-for="(entry, index) in historyEntries" :key="`${entry.at}-${index}`">
+                <button type="button" class="ivx-history-row" @click="toggleHistoryEntry(entry.at)">
+                  <span class="ivx-history-at">{{ formatStamp(entry.at) }}</span>
+                  <span class="ivx-history-score">{{ entry.overall }}<small>分</small></span>
+                  <span class="ivx-history-grade">{{ entry.grade }}</span>
+                  <em v-if="index === 0">本次</em>
+                  <component :is="historyExpandedAt === entry.at ? PhCaretUp : PhCaretDown" :size="12" />
+                </button>
+                <div v-if="historyExpandedAt === entry.at" class="ivx-history-dims">
+                  <span v-for="dim in entry.dimensions" :key="`${entry.at}-${dim.key}`">
+                    {{ dimLabel(dim.key) }} <b>{{ dim.score }}</b>
+                  </span>
+                </div>
+              </li>
+            </ol>
+          </section>
+
           <section class="iv-report-grid">
             <article v-for="dim in report.dimensions" :key="dim.key" class="iv-dim">
               <header>
@@ -1149,6 +1740,97 @@ onBeforeUnmount(() => {
             <p v-else-if="report.speech.pace_source === 'none'" class="iv-pace-note warn">
               没有测到有效人声，语速与内容均未评估。请确认麦克风可用后重练。
             </p>
+
+            <!-- 逐题语速曲线：手写 SVG，不引入图表库 -->
+            <div class="ivx-pace">
+              <header class="ivx-pace-head">
+                <strong><PhChartLine :size="15" /> 逐题语速曲线</strong>
+                <span>浅色横带 = 理想区间 {{ PACE_BAND_LOW }}–{{ PACE_BAND_HIGH }} 字/分</span>
+              </header>
+
+              <svg
+                v-if="paceChart"
+                class="ivx-pace-svg"
+                :viewBox="`0 0 ${paceChart.width} ${paceChart.height}`"
+                role="img"
+                aria-label="逐题语速曲线"
+              >
+                <rect
+                  :x="paceChart.left"
+                  :y="paceChart.band.y"
+                  :width="paceChart.width - paceChart.left - paceChart.right"
+                  :height="paceChart.band.height"
+                  class="ivx-band"
+                />
+                <line
+                  v-for="ref in paceChart.refs"
+                  :key="`ref${ref}`"
+                  :x1="paceChart.left"
+                  :x2="paceChart.width - paceChart.right"
+                  :y1="ref"
+                  :y2="ref"
+                  class="ivx-ref"
+                />
+                <line
+                  v-for="tick in paceChart.ticks"
+                  :key="`grid${tick.value}`"
+                  :x1="paceChart.left"
+                  :x2="paceChart.width - paceChart.right"
+                  :y1="tick.y"
+                  :y2="tick.y"
+                  class="ivx-grid"
+                />
+                <text
+                  v-for="tick in paceChart.ticks"
+                  :key="`tick${tick.value}`"
+                  :x="paceChart.left - 8"
+                  :y="tick.y + 3"
+                  class="ivx-axis"
+                  text-anchor="end"
+                >{{ tick.value }}</text>
+
+                <!-- 只有 1 题：一根竖条 + 数值，不出折线 -->
+                <rect
+                  v-if="paceChart.bar"
+                  :x="paceChart.bar.x"
+                  :y="paceChart.bar.y"
+                  :width="paceChart.bar.width"
+                  :height="paceChart.bar.height"
+                  rx="6"
+                  class="ivx-bar"
+                  :class="paceChart.points[0].tone"
+                />
+                <path v-else :d="paceChart.path" class="ivx-line" />
+
+                <g v-for="point in paceChart.points" :key="`p${point.no}`">
+                  <circle
+                    v-if="!paceChart.single"
+                    :cx="point.x"
+                    :cy="point.y"
+                    r="4.5"
+                    class="ivx-dot"
+                    :class="point.tone"
+                  />
+                  <text
+                    v-if="point.tone !== 'fit'"
+                    :x="point.x"
+                    :y="point.tagY"
+                    class="ivx-tag"
+                    :class="point.tone"
+                    text-anchor="middle"
+                  >{{ point.tone === 'fast' ? '偏快' : '偏慢' }}</text>
+                  <text :x="point.x" :y="point.labelY" class="ivx-value" :class="point.tone" text-anchor="middle">{{
+                    point.rate
+                  }}</text>
+                  <text :x="point.x" :y="paceChart.height - 12" class="ivx-axis" text-anchor="middle"
+                    >第{{ point.no }}题</text
+                  >
+                </g>
+              </svg>
+
+              <p v-else class="ivx-pace-empty">这一场没有测到有效语速（麦克风没采到人声），曲线无法生成。</p>
+              <p v-if="paceChart" class="ivx-pace-conclusion">{{ paceConclusion }}</p>
+            </div>
           </section>
 
           <section class="iv-report-list">
@@ -1191,3 +1873,312 @@ onBeforeUnmount(() => {
     <p v-if="cameraError && stage === 'live'" class="iv-toast warn">{{ cameraError }}</p>
   </div>
 </template>
+
+<style scoped>
+/* ============================================================================
+   本组件新增块的样式。只在本组件生效，class 统一 ivx- 前缀，
+   颜色沿用 .iv-root 上的 --iv-accent / --iv-warm / --iv-danger / --iv-line。
+   ============================================================================ */
+
+/* ---------------------------------------------------------------- 答题计时器 */
+.ivx-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  flex: 0 0 auto;
+  padding: .24rem .6rem;
+  font-size: .74rem;
+  font-variant-numeric: tabular-nums;
+  color: #dff3ec;
+  background: rgba(255, 255, 255, .07);
+  border: 1px solid var(--iv-line);
+  border-radius: 999px;
+  white-space: nowrap;
+  transition: color .2s, background .2s, border-color .2s;
+}
+.ivx-timer b {
+  font-size: .86rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.ivx-timer em {
+  font-style: normal;
+  font-size: .66rem;
+  color: inherit;
+  opacity: .9;
+}
+.ivx-timer.ok { color: #bff0e2; }
+.ivx-timer.warn {
+  color: #f7e4bd;
+  background: rgba(150, 116, 48, .32);
+  border-color: rgba(232, 184, 119, .45);
+}
+.ivx-timer.over {
+  color: #ffd6cd;
+  background: rgba(160, 62, 48, .34);
+  border-color: rgba(232, 112, 95, .5);
+  animation: ivx-breathe 1.8s ease-in-out infinite;
+}
+@keyframes ivx-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .72; }
+}
+
+/* ---------------------------------------------------------------- 语速曲线 */
+.ivx-pace {
+  margin-top: .9rem;
+  padding: .8rem .9rem .7rem;
+  background: rgba(255, 255, 255, .035);
+  border: 1px solid var(--iv-line);
+  border-radius: 14px;
+}
+.ivx-pace-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .6rem;
+  flex-wrap: wrap;
+  margin-bottom: .35rem;
+}
+.ivx-pace-head strong {
+  display: inline-flex;
+  align-items: center;
+  gap: .34rem;
+  font-size: .82rem;
+  color: rgba(232, 240, 236, .9);
+}
+.ivx-pace-head span {
+  font-size: .7rem;
+  color: rgba(226, 236, 231, .5);
+}
+.ivx-pace-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.ivx-band { fill: rgba(127, 212, 189, .1); }
+.ivx-ref {
+  stroke: rgba(127, 212, 189, .42);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+.ivx-grid { stroke: rgba(255, 255, 255, .07); stroke-width: 1; }
+.ivx-axis {
+  font-size: 10px;
+  fill: rgba(226, 236, 231, .45);
+  font-variant-numeric: tabular-nums;
+}
+.ivx-line {
+  fill: none;
+  stroke: rgba(127, 212, 189, .72);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.ivx-dot { stroke: #0e171b; stroke-width: 1.5; }
+.ivx-dot.fit { fill: #7fd4bd; }
+.ivx-dot.slow { fill: #8fb8e8; }
+.ivx-dot.fast { fill: #e8b877; }
+.ivx-bar.fit { fill: rgba(127, 212, 189, .42); }
+.ivx-bar.slow { fill: rgba(143, 184, 232, .42); }
+.ivx-bar.fast { fill: rgba(232, 184, 119, .42); }
+.ivx-value {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ivx-value.fit { fill: #cdeee2; }
+.ivx-value.slow { fill: #a8cbf2; }
+.ivx-value.fast { fill: #f3d6a5; }
+.ivx-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.ivx-tag.slow { fill: #8fb8e8; }
+.ivx-tag.fast { fill: #e8b877; }
+.ivx-pace-conclusion {
+  margin: .5rem 0 0;
+  font-size: .76rem;
+  line-height: 1.66;
+  color: rgba(238, 245, 241, .86);
+}
+.ivx-pace-empty {
+  margin: .5rem 0 0;
+  font-size: .76rem;
+  line-height: 1.66;
+  color: rgba(226, 236, 231, .55);
+}
+
+/* ---------------------------------------------------------------- 历史对比 */
+.ivx-history {
+  margin-bottom: 1.1rem;
+  padding: .8rem .95rem .85rem;
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid var(--iv-line);
+  border-radius: 14px;
+}
+.ivx-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  flex-wrap: wrap;
+}
+.ivx-history-head strong {
+  display: inline-flex;
+  align-items: center;
+  gap: .34rem;
+  font-size: .82rem;
+  color: rgba(232, 240, 236, .9);
+}
+.ivx-history-tools { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
+.ivx-link {
+  display: inline-flex;
+  align-items: center;
+  gap: .24rem;
+  padding: .18rem .52rem;
+  font-size: .7rem;
+  font-weight: 600;
+  color: #cfe9e0;
+  background: rgba(255, 255, 255, .07);
+  border: 1px solid var(--iv-line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background .18s, border-color .18s;
+}
+.ivx-link:hover { background: rgba(255, 255, 255, .14); border-color: rgba(255, 255, 255, .3); }
+.ivx-link.danger { color: #ffd0c6; }
+.ivx-history-empty {
+  margin: .55rem 0 0;
+  font-size: .76rem;
+  color: rgba(226, 236, 231, .55);
+}
+.ivx-history-body {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  flex-wrap: wrap;
+  margin-top: .5rem;
+}
+.ivx-history-delta {
+  display: flex;
+  align-items: baseline;
+  gap: .45rem;
+  flex-wrap: wrap;
+  font-size: .78rem;
+  color: rgba(232, 240, 236, .8);
+}
+.ivx-history-delta b {
+  font-size: 1.12rem;
+  font-weight: 800;
+  color: #f2f7f4;
+  font-variant-numeric: tabular-nums;
+}
+.ivx-history-delta em {
+  display: inline-flex;
+  align-items: center;
+  gap: .1rem;
+  font-style: normal;
+  font-size: .8rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.ivx-history-delta em.up { color: #8fe3c8; }
+.ivx-history-delta em.down { color: #f39a89; }
+.ivx-history-prev { font-size: .7rem; color: rgba(226, 236, 231, .5); }
+.ivx-history-first { font-size: .76rem; color: rgba(226, 236, 231, .62); }
+.ivx-spark { width: 190px; height: auto; flex: 0 0 auto; }
+.ivx-spark-line {
+  fill: none;
+  stroke: rgba(127, 212, 189, .6);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.ivx-spark-dot { fill: rgba(127, 212, 189, .72); }
+.ivx-spark-dot.last { fill: var(--iv-warm); }
+.ivx-history-count { font-size: .68rem; color: rgba(226, 236, 231, .42); }
+.ivx-history-list {
+  margin: .7rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: .3rem;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.ivx-history-row {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  width: 100%;
+  padding: .4rem .55rem;
+  font-size: .74rem;
+  color: rgba(232, 240, 236, .8);
+  text-align: left;
+  background: rgba(255, 255, 255, .045);
+  border: 1px solid var(--iv-line);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background .18s;
+}
+.ivx-history-row:hover { background: rgba(255, 255, 255, .1); }
+.ivx-history-at { font-variant-numeric: tabular-nums; color: rgba(226, 236, 231, .62); }
+.ivx-history-score {
+  margin-left: auto;
+  font-size: .9rem;
+  font-weight: 700;
+  color: #f2f7f4;
+  font-variant-numeric: tabular-nums;
+}
+.ivx-history-score small {
+  margin-left: .1rem;
+  font-size: .62rem;
+  font-weight: 500;
+  color: rgba(226, 236, 231, .5);
+}
+.ivx-history-grade {
+  padding: .06rem .38rem;
+  font-size: .66rem;
+  font-weight: 700;
+  color: #0f1a18;
+  background: rgba(232, 184, 119, .9);
+  border-radius: 5px;
+}
+.ivx-history-row em {
+  font-style: normal;
+  font-size: .64rem;
+  color: #bff0e2;
+}
+.ivx-history-dims {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem .5rem;
+  padding: .4rem .55rem .15rem;
+  font-size: .7rem;
+  color: rgba(226, 236, 231, .6);
+}
+.ivx-history-dims span {
+  padding: .1rem .42rem;
+  background: rgba(255, 255, 255, .06);
+  border-radius: 999px;
+}
+.ivx-history-dims b {
+  color: #eaf5f0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- 报告导出 */
+.ivx-export { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+/* ---------------------------------------------------------------- 窄屏收敛 */
+@media (max-width: 1180px) {
+  .ivx-timer em { display: none; }
+}
+@media (max-width: 900px) {
+  .ivx-spark { width: 140px; }
+  .ivx-history-body { gap: .5rem; }
+  .ivx-pace { padding: .7rem .7rem .6rem; }
+}
+</style>

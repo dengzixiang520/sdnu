@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { PhArrowSquareOut, PhFilePlus, PhFunnel, PhLightbulb, PhMagnifyingGlass, PhNewspaper, PhRocketLaunch, PhUsersThree, PhTrophy, PhCalendar, PhUsers, PhStar, PhArrowLeft, PhTarget, PhMedal, PhClock, PhBookOpen, PhUpload, PhChartBar } from '@phosphor-icons/vue'
+import { PhArrowSquareOut, PhFilePlus, PhFunnel, PhLightbulb, PhMagnifyingGlass, PhMegaphone, PhNewspaper, PhRocketLaunch, PhUsersThree, PhTrophy, PhCalendar, PhUsers, PhStar, PhArrowLeft, PhTarget, PhMedal, PhClock, PhBookOpen, PhUpload, PhChartBar } from '@phosphor-icons/vue'
 import { command, requestJson } from '../api'
 import { useIdentity } from '../identity'
 
-type Tool = 'submit' | 'team' | 'proposal' | 'review' | 'upload'
+type Tool = 'submit' | 'wish' | 'recruit' | 'team' | 'proposal' | 'review' | 'upload'
 interface CompetitionDoc {
   title: string
   url: string
@@ -156,7 +156,626 @@ const ratingSummary = computed(() => {
     .map(r => ({ rating: r, count: buckets[r] }))
 })
 
-onMounted(() => { fetchCompetitions() })
+/* ==================== 工具面板：提交 / 组队 / 申报 / 档案 ==================== */
+
+/* ---------- 1. 提交竞赛 ---------- */
+const submitForm = ref({ name: '', edition: '', url: '', deadline: '', organizer: '', description: '' })
+const submitBusy = ref(false)
+const submitNotice = ref('')
+
+const SUBMISSION_KEY = 'zhq-innovation-submissions-v1'
+interface SubmissionRow {
+  at: string
+  name: string
+  edition: string
+  status: 'pending' | 'approved' | 'rejected'
+  id: string
+}
+const submissions = ref<SubmissionRow[]>([])
+
+function loadSubmissions() {
+  try {
+    const raw = localStorage.getItem(SUBMISSION_KEY)
+    if (raw) submissions.value = JSON.parse(raw) as SubmissionRow[]
+  } catch {
+    submissions.value = []
+  }
+}
+
+function persistSubmissions() {
+  try {
+    localStorage.setItem(SUBMISSION_KEY, JSON.stringify(submissions.value.slice(0, 20)))
+  } catch {
+    // 隐私模式写不进去，档案只在本次会话可见。
+  }
+}
+
+function clearSubmissions() {
+  submissions.value = []
+  try {
+    localStorage.removeItem(SUBMISSION_KEY)
+  } catch {
+    // 忽略
+  }
+  submitNotice.value = '参赛档案已清空'
+}
+
+const submissionStats = computed(() => ({
+  total: submissions.value.length,
+  approved: submissions.value.filter((row) => row.status === 'approved').length,
+  pending: submissions.value.filter((row) => row.status === 'pending').length,
+}))
+
+async function submitCompetition() {
+  if (!submitForm.value.name.trim()) {
+    submitNotice.value = '先填竞赛名称'
+    return
+  }
+  if (!submitForm.value.edition.trim()) {
+    submitNotice.value = '填一下届次，例如「2026 年第十六届」'
+    return
+  }
+  submitBusy.value = true
+  submitNotice.value = ''
+  try {
+    const payload: Record<string, unknown> = {
+      competition_name: submitForm.value.name.trim(),
+      edition: submitForm.value.edition.trim(),
+    }
+    if (submitForm.value.url.trim()) payload.official_url = submitForm.value.url.trim()
+    if (submitForm.value.organizer.trim()) payload.organizer = submitForm.value.organizer.trim()
+    if (submitForm.value.description.trim()) payload.description = submitForm.value.description.trim()
+    if (submitForm.value.deadline.trim()) payload.deadline = `${submitForm.value.deadline.trim()}T23:59:00`
+
+    const result = await command('innovation', 'submit_competition', '', { submission: payload })
+    const id = String(result.data.submission_id ?? '')
+    const row: SubmissionRow = {
+      at: new Date().toISOString(),
+      name: submitForm.value.name.trim(),
+      edition: submitForm.value.edition.trim(),
+      status: 'pending',
+      id,
+    }
+    submissions.value = [row, ...submissions.value].slice(0, 20)
+    persistSubmissions()
+    submitNotice.value = result.message || '已提交审核大厅'
+    submitForm.value = { name: '', edition: '', url: '', deadline: '', organizer: '', description: '' }
+  } catch (reason) {
+    submitNotice.value = reason instanceof Error ? reason.message : '提交失败'
+  } finally {
+    submitBusy.value = false
+  }
+}
+
+/* ---------- 2. 组队匹配 ---------- */
+interface TeamMatchRow {
+  student_id: string
+  display_name: string
+  score: number
+  matched_skills: string[]
+}
+
+const SKILL_POOL = ['前端开发', '算法建模', '数据分析', '硬件嵌入式', '视觉设计', '文案写作']
+
+/** 从技能池里补一项到需求侧，权重先给 0.5。 */
+function addTeamSkill() {
+  const next = SKILL_POOL.find((skill) => !(skill in teamSkills.value))
+  if (!next) {
+    teamNotice.value = '技能池里的项目都已经加上了'
+    return
+  }
+  teamSkills.value = { ...teamSkills.value, [next]: 0.5 }
+  teamCandidates.value = teamCandidates.value.map((item) => ({
+    ...item,
+    skills: { ...item.skills, [next]: item.skills[next] ?? 0.4 },
+  }))
+}
+
+function removeTeamSkill(skill: string) {
+  if (Object.keys(teamSkills.value).length <= 1) {
+    teamNotice.value = '至少保留一项技能'
+    return
+  }
+  const next = { ...teamSkills.value }
+  delete next[skill]
+  teamSkills.value = next
+}
+
+const teamProject = ref('校园智能助手')
+const teamSkills = ref<Record<string, number>>({ 前端开发: 0.8, 算法建模: 0.7, 数据分析: 0.5 })
+const teamCandidates = ref<Array<{ name: string; skills: Record<string, number> }>>([])
+const teamMatches = ref<TeamMatchRow[]>([])
+const teamBusy = ref(false)
+const teamNotice = ref('')
+
+function ensureCandidateSkills(skills: Record<string, number>): Record<string, number> {
+  const next: Record<string, number> = {}
+  for (const skill of Object.keys(teamSkills.value)) {
+    next[skill] = skills[skill] ?? 0.4
+  }
+  return next
+}
+
+function addCandidate() {
+  const index = teamCandidates.value.length + 1
+  teamCandidates.value = [
+    ...teamCandidates.value,
+    { name: `候选人 ${index}`, skills: ensureCandidateSkills({}) },
+  ]
+}
+
+function removeCandidate(index: number) {
+  teamCandidates.value = teamCandidates.value.filter((_, i) => i !== index)
+}
+
+/** 演示用的三位候选人，覆盖「强前端」「强算法」「均衡」三种画像。 */
+function fillDemoCandidates() {
+  teamCandidates.value = [
+    {
+      name: '李思远',
+      skills: ensureCandidateSkills({ 前端开发: 0.92, 算法建模: 0.35, 数据分析: 0.55, 视觉设计: 0.7, 文案写作: 0.4 }),
+    },
+    {
+      name: '王雨桐',
+      skills: ensureCandidateSkills({ 前端开发: 0.4, 算法建模: 0.9, 数据分析: 0.85, 硬件嵌入式: 0.3, 文案写作: 0.5 }),
+    },
+    {
+      name: '陈昱宁',
+      skills: ensureCandidateSkills({ 前端开发: 0.7, 算法建模: 0.68, 数据分析: 0.62, 视觉设计: 0.55, 文案写作: 0.6 }),
+    },
+  ]
+  teamNotice.value = '已填入 3 位示例候选人'
+}
+
+async function runMatch() {
+  const required = Object.entries(teamSkills.value).filter(([, weight]) => weight > 0)
+  if (!teamProject.value.trim()) {
+    teamNotice.value = '先填项目名'
+    return
+  }
+  if (!required.length) {
+    teamNotice.value = '至少给一项技能设置大于 0 的权重'
+    return
+  }
+  if (!teamCandidates.value.length) {
+    teamNotice.value = '至少添加一位候选人'
+    return
+  }
+  teamBusy.value = true
+  teamNotice.value = ''
+  try {
+    const result = await command('innovation', 'match_team', '', {
+      requirement: {
+        project_name: teamProject.value.trim(),
+        required_skills: Object.fromEntries(required),
+        max_candidates: Math.min(20, teamCandidates.value.length),
+      },
+      profiles: teamCandidates.value.map((item, index) => ({
+        student_id: `cand-${index + 1}`,
+        display_name: item.name,
+        skills: item.skills,
+      })),
+    })
+    teamMatches.value = (result.data.matches ?? []) as TeamMatchRow[]
+    teamNotice.value = teamMatches.value.length
+      ? `匹配完成，共 ${teamMatches.value.length} 位候选人`
+      : '没有候选人满足最低技能要求'
+  } catch (reason) {
+    teamNotice.value = reason instanceof Error ? reason.message : '匹配失败'
+  } finally {
+    teamBusy.value = false
+  }
+}
+
+function scoreColor(score: number): string {
+  if (score >= 0.8) return '#2f7a52'
+  if (score >= 0.6) return '#c98a2b'
+  return '#8a9994'
+}
+
+function setWeight(skill: string, event: Event) {
+  const value = Number((event.target as HTMLInputElement).value)
+  teamSkills.value = { ...teamSkills.value, [skill]: value }
+}
+
+function setCandidateName(index: number, event: Event) {
+  const value = (event.target as HTMLInputElement).value
+  teamCandidates.value = teamCandidates.value.map((item, i) =>
+    i === index ? { ...item, name: value } : item,
+  )
+}
+
+function setCandidateSkill(index: number, skill: string, event: Event) {
+  const value = Number((event.target as HTMLInputElement).value)
+  teamCandidates.value = teamCandidates.value.map((item, i) =>
+    i === index ? { ...item, skills: { ...item.skills, [skill]: value } } : item,
+  )
+}
+
+function candidateSkill(index: number, skill: string): number {
+  return teamCandidates.value[index]?.skills[skill] ?? 0
+}
+
+function candidateName(index: number): string {
+  return teamCandidates.value[index]?.name ?? ''
+}
+
+/* ---------- 3. 我想参加的比赛 ---------- */
+const WISH_KEY = 'zhq-innovation-wishlist-v1'
+const WISH_STAGES = ['观望中', '备赛中', '组队中', '已报名', '已提交'] as const
+
+interface WishRow {
+  id: string
+  name: string
+  deadline: string
+  stage: string
+  note: string
+  addedAt: string
+}
+
+const wishlist = ref<WishRow[]>([])
+const wishPick = ref('')
+const wishManual = ref('')
+const wishDeadline = ref('')
+const wishNotice = ref('')
+
+function loadWishlist() {
+  try {
+    const raw = localStorage.getItem(WISH_KEY)
+    if (raw) wishlist.value = JSON.parse(raw) as WishRow[]
+  } catch {
+    wishlist.value = []
+  }
+}
+
+function persistWishlist() {
+  try {
+    localStorage.setItem(WISH_KEY, JSON.stringify(wishlist.value.slice(0, 40)))
+  } catch {
+    // 隐私模式下写不进去，当次会话内仍然可用
+  }
+}
+
+/** 剩余天数按本地 0 点算，避免 toISOString 的 UTC 偏移把日期算差一天 */
+function daysLeft(deadline: string): number | null {
+  if (!deadline) return null
+  const target = new Date(`${deadline}T00:00:00`)
+  if (Number.isNaN(target.getTime())) return null
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return Math.round((target.getTime() - today.getTime()) / 86400000)
+}
+
+function wishTone(deadline: string): string {
+  const left = daysLeft(deadline)
+  if (left === null) return 'is-none'
+  if (left < 0) return 'is-over'
+  if (left <= 7) return 'is-soon'
+  return 'is-normal'
+}
+
+function wishCountdown(deadline: string): string {
+  const left = daysLeft(deadline)
+  if (left === null) return '未设截止'
+  if (left < 0) return `已截止 ${-left} 天`
+  if (left === 0) return '今天截止'
+  return `还剩 ${left} 天`
+}
+
+const sortedWishlist = computed(() => [...wishlist.value].sort((left, right) => {
+  const a = daysLeft(left.deadline)
+  const b = daysLeft(right.deadline)
+  if (a === null && b === null) return left.name.localeCompare(right.name)
+  if (a === null) return 1
+  if (b === null) return -1
+  return a - b
+}))
+
+const wishStats = computed(() => ({
+  total: wishlist.value.length,
+  soon: wishlist.value.filter((row) => {
+    const left = daysLeft(row.deadline)
+    return left !== null && left >= 0 && left <= 30
+  }).length,
+  registered: wishlist.value.filter((row) => row.stage === '已报名' || row.stage === '已提交').length,
+}))
+
+function addWish(name: string, deadline = '') {
+  const trimmed = name.trim()
+  if (!trimmed) {
+    wishNotice.value = '先选一个竞赛，或者手填个名字'
+    return
+  }
+  if (wishlist.value.some((row) => row.name === trimmed)) {
+    wishNotice.value = `「${trimmed}」已经在意向清单里了`
+    return
+  }
+  const row: WishRow = {
+    id: `wish-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name: trimmed,
+    deadline,
+    stage: WISH_STAGES[0],
+    note: '',
+    addedAt: new Date().toISOString(),
+  }
+  wishlist.value = [row, ...wishlist.value]
+  persistWishlist()
+  wishNotice.value = deadline
+    ? `已加入「${trimmed}」，${wishCountdown(deadline)}`
+    : `已加入「${trimmed}」，记得设一下报名截止`
+}
+
+function addWishFromCatalog() {
+  if (!wishPick.value) {
+    wishNotice.value = '先在下拉里选一个竞赛'
+    return
+  }
+  const picked = competitions.value.find((item) => item.name === wishPick.value)
+  addWish(wishPick.value)
+  // 竞赛库里的报名时间是「每年 3–5 月」这类自然语言，没法自动转成截止日期，只能提示用户自己填
+  if (picked?.registration && wishlist.value.some((row) => row.name === picked.name)) {
+    wishNotice.value = `已加入「${picked.name}」，报名时间：${picked.registration}`
+  }
+  wishPick.value = ''
+}
+
+function addWishManual() {
+  addWish(wishManual.value, wishDeadline.value)
+  wishManual.value = ''
+  wishDeadline.value = ''
+}
+
+function advanceStage(row: WishRow) {
+  const index = WISH_STAGES.indexOf(row.stage as (typeof WISH_STAGES)[number])
+  const next = WISH_STAGES[Math.min(WISH_STAGES.length - 1, index + 1)]
+  if (next === row.stage) {
+    wishNotice.value = `「${row.name}」已经在最后一档（已提交）了`
+    return
+  }
+  wishlist.value = wishlist.value.map((item) => (item.id === row.id ? { ...item, stage: next } : item))
+  persistWishlist()
+  wishNotice.value = `「${row.name}」推进到「${next}」`
+}
+
+function removeWish(id: string) {
+  wishlist.value = wishlist.value.filter((row) => row.id !== id)
+  persistWishlist()
+}
+
+/** 把这条意向带进招人板块，比赛名直接填进招募表单 */
+function wishToRecruit(row: WishRow) {
+  recruitForm.value = { ...recruitForm.value, competition: row.name }
+  activeTool.value = 'recruit'
+  recruitNotice.value = `已把「${row.name}」带到招募表单，写一下缺什么人就发出去`
+}
+
+/* ---------- 4. 招人板块 ---------- */
+const RECRUIT_MINE_KEY = 'zhq-innovation-recruit-mine-v1'
+const RECRUIT_APPLIED_KEY = 'zhq-innovation-applied-v1'
+
+interface RecruitMatchRow {
+  student_id: string
+  display_name: string
+  score: number
+  matched_skills: string[]
+}
+
+interface RecruitPost {
+  post_id: string
+  competition: string
+  title: string
+  owner: string
+  slots: number
+  deadline: string
+  skills: Record<string, number>
+  note: string
+  match?: RecruitMatchRow | null
+}
+
+interface MyRecruit {
+  id: string
+  competition: string
+  title: string
+  slots: number
+  deadline: string
+  note: string
+  skills: Record<string, number>
+  at: string
+}
+
+const recruitPosts = ref<RecruitPost[]>([])
+const recruitMine = ref<MyRecruit[]>([])
+const appliedPosts = ref<string[]>([])
+const recruitBusy = ref(false)
+const recruitNotice = ref('')
+/** 「我」的技能画像：招募板用它算匹配度，发布招募时也复用它当技能要求 */
+const mySkills = ref<Record<string, number>>({ 前端开发: 0.8, 算法建模: 0.7, 数据分析: 0.5 })
+const recruitForm = ref({ competition: '', title: '', slots: 1, deadline: '', note: '' })
+
+function loadRecruitLocal() {
+  try {
+    const mine = localStorage.getItem(RECRUIT_MINE_KEY)
+    if (mine) recruitMine.value = JSON.parse(mine) as MyRecruit[]
+    const applied = localStorage.getItem(RECRUIT_APPLIED_KEY)
+    if (applied) appliedPosts.value = JSON.parse(applied) as string[]
+  } catch {
+    recruitMine.value = []
+    appliedPosts.value = []
+  }
+}
+
+function persistRecruitLocal() {
+  try {
+    localStorage.setItem(RECRUIT_MINE_KEY, JSON.stringify(recruitMine.value.slice(0, 20)))
+    localStorage.setItem(RECRUIT_APPLIED_KEY, JSON.stringify(appliedPosts.value.slice(0, 40)))
+  } catch {
+    // 忽略写入失败
+  }
+}
+
+async function loadRecruitBoard() {
+  recruitBusy.value = true
+  recruitNotice.value = ''
+  try {
+    const result = await command('innovation', 'recruit_board', '', {
+      my_skills: Object.fromEntries(Object.entries(mySkills.value).filter(([, value]) => value > 0)),
+    })
+    recruitPosts.value = (result.data.posts ?? []) as RecruitPost[]
+    recruitNotice.value = result.message
+  } catch (reason) {
+    recruitNotice.value = reason instanceof Error ? reason.message : '招募板加载失败'
+  } finally {
+    recruitBusy.value = false
+  }
+}
+
+function setMySkill(skill: string, event: Event) {
+  const value = Number((event.target as HTMLInputElement).value)
+  mySkills.value = { ...mySkills.value, [skill]: value }
+}
+
+function addMySkill() {
+  const used = new Set(Object.keys(mySkills.value))
+  const free = SKILL_POOL.find((skill) => !used.has(skill))
+  if (!free) {
+    recruitNotice.value = '六项技能都在列表里了'
+    return
+  }
+  mySkills.value = { ...mySkills.value, [free]: 0.5 }
+}
+
+function removeMySkill(skill: string) {
+  const next = { ...mySkills.value }
+  delete next[skill]
+  mySkills.value = next
+}
+
+function publishRecruit() {
+  const form = recruitForm.value
+  if (!form.competition.trim() || !form.title.trim()) {
+    recruitNotice.value = '「参加哪个比赛」和「缺什么人」这两项要填'
+    return
+  }
+  const row: MyRecruit = {
+    id: `mine-${Date.now()}`,
+    competition: form.competition.trim(),
+    title: form.title.trim(),
+    slots: Math.max(1, Math.min(10, Number(form.slots) || 1)),
+    deadline: form.deadline,
+    note: form.note.trim(),
+    skills: Object.fromEntries(Object.entries(mySkills.value).filter(([, value]) => value > 0)),
+    at: new Date().toISOString(),
+  }
+  recruitMine.value = [row, ...recruitMine.value].slice(0, 20)
+  persistRecruitLocal()
+  recruitNotice.value = `招募已发布：${row.title}（缺 ${row.slots} 人）`
+  recruitForm.value = { competition: '', title: '', slots: 1, deadline: '', note: '' }
+}
+
+function removeMyRecruit(id: string) {
+  recruitMine.value = recruitMine.value.filter((row) => row.id !== id)
+  persistRecruitLocal()
+}
+
+function applyPost(post: RecruitPost) {
+  if (appliedPosts.value.includes(post.post_id)) {
+    recruitNotice.value = `已经申请过「${post.title}」了，等对方回消息`
+    return
+  }
+  appliedPosts.value = [post.post_id, ...appliedPosts.value]
+  persistRecruitLocal()
+  recruitNotice.value = `已向 ${post.owner} 发出申请：${post.title}`
+}
+
+function hasApplied(postId: string): boolean {
+  return appliedPosts.value.includes(postId)
+}
+
+function skillWeightText(skills: Record<string, number>): string {
+  return Object.entries(skills)
+    .sort(([, a], [, b]) => b - a)
+    .map(([skill, weight]) => `${skill} ${Math.round(weight * 100)}`)
+    .join(' · ')
+}
+
+/* ---------- 5. 申报大纲 ---------- */
+const proposalProject = ref('')
+const proposalCompetition = ref('')
+const proposalKeywords = ref('')
+const proposalOutline = ref<{ project_name: string; competition_name: string; sections: string[] } | null>(null)
+const proposalBusy = ref(false)
+const proposalNotice = ref('')
+
+async function generateProposal() {
+  if (!proposalProject.value.trim() || !proposalCompetition.value.trim()) {
+    proposalNotice.value = '项目名和赛事名都要填'
+    return
+  }
+  proposalBusy.value = true
+  proposalNotice.value = ''
+  try {
+    const keywords = proposalKeywords.value
+      .split(/[,，、\s]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+    const result = await command('innovation', 'proposal_outline', '', {
+      project_name: proposalProject.value.trim(),
+      competition_name: proposalCompetition.value.trim(),
+      technical_keywords: keywords,
+    })
+    proposalOutline.value = result.data as unknown as typeof proposalOutline.value
+    proposalNotice.value = '大纲已生成，可以复制或导出'
+  } catch (reason) {
+    proposalNotice.value = reason instanceof Error ? reason.message : '生成失败'
+  } finally {
+    proposalBusy.value = false
+  }
+}
+
+function proposalMarkdown(): string {
+  if (!proposalOutline.value) return ''
+  const lines = [
+    `# ${proposalOutline.value.project_name} 申报书大纲`,
+    '',
+    `参赛赛事：${proposalOutline.value.competition_name}`,
+    '',
+    ...proposalOutline.value.sections.map((section, index) => `${index + 1}. ${section}`),
+    '',
+  ]
+  return lines.join('\n')
+}
+
+async function copyProposal() {
+  const text = proposalMarkdown()
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    proposalNotice.value = '大纲已复制到剪贴板'
+  } catch {
+    proposalNotice.value = '浏览器不允许写剪贴板，请手动选中复制'
+  }
+}
+
+function exportProposal() {
+  const text = proposalMarkdown()
+  if (!text) return
+  const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '')
+  anchor.href = url
+  anchor.download = `${proposalOutline.value?.project_name || '申报大纲'}-${stamp}.md`
+  anchor.click()
+  URL.revokeObjectURL(url)
+  proposalNotice.value = '已导出 Markdown'
+}
+
+onMounted(() => {
+  fetchCompetitions()
+  loadSubmissions()
+  loadWishlist()
+  loadRecruitLocal()
+})
 </script>
 
 <template>
@@ -415,16 +1034,259 @@ onMounted(() => { fetchCompetitions() })
         <header><h2>竞赛工具</h2></header>
         <nav>
           <button :class="{active:activeTool==='submit'}" @click="activeTool='submit'"><PhFilePlus :size="20" weight="duotone" /><span><strong>提交竞赛</strong></span></button>
+          <button :class="{active:activeTool==='wish'}" @click="activeTool='wish'"><PhStar :size="20" weight="duotone" /><span><strong>我想参加</strong><em v-if="wishlist.length">{{ wishlist.length }}</em></span></button>
+          <button :class="{active:activeTool==='recruit'}" @click="activeTool='recruit'"><PhMegaphone :size="20" weight="duotone" /><span><strong>招人板块</strong><em v-if="recruitMine.length">{{ recruitMine.length }}</em></span></button>
+          <button :class="{active:activeTool==='team'}" @click="activeTool='team'"><PhUsersThree :size="20" weight="duotone" /><span><strong>组队匹配</strong></span></button>
+          <button :class="{active:activeTool==='proposal'}" @click="activeTool='proposal'"><PhLightbulb :size="20" weight="duotone" /><span><strong>申报大纲</strong></span></button>
           <button v-if="isStaff" :class="{active:activeTool==='upload'}" @click="activeTool='upload'"><PhUpload :size="20" weight="duotone" /><span><strong>上传成果</strong></span></button>
         </nav>
+
         <section class="innovation-tool-panel">
-          <div v-if="activeTool==='submit'"><h3>提交竞赛信息</h3><p>功能开发中...</p></div>
-          <div v-if="activeTool==='upload' && isStaff">
+          <!-- 提交竞赛 -->
+          <div v-if="activeTool==='submit'" class="innx-panel">
+            <h3>提交竞赛信息</h3>
+            <p class="innx-hint">提交后进入审核大厅，通过才会发积分。信息越完整，审核越快。</p>
+            <label class="innx-field">竞赛名称<input v-model="submitForm.name" placeholder="例如：中国大学生计算机设计大赛" maxlength="200"></label>
+            <label class="innx-field">届次<input v-model="submitForm.edition" placeholder="例如：2026 年第十九届" maxlength="100"></label>
+            <label class="innx-field">官网<input v-model="submitForm.url" placeholder="https://" maxlength="200"></label>
+            <label class="innx-field">报名截止<input v-model="submitForm.deadline" type="date"></label>
+            <label class="innx-field">主办单位<input v-model="submitForm.organizer" placeholder="可空" maxlength="200"></label>
+            <label class="innx-field">说明<textarea v-model="submitForm.description" rows="2" maxlength="2000" placeholder="赛道、组别、参赛要求…"></textarea></label>
+            <button class="ink-button primary" type="button" :disabled="submitBusy" @click="submitCompetition">
+              {{ submitBusy ? '提交中…' : '提交审核' }}
+            </button>
+            <p v-if="submitNotice" class="innx-notice">{{ submitNotice }}</p>
+          </div>
+
+          <!-- 我想参加的比赛 -->
+          <div v-if="activeTool==='wish'" class="innx-panel">
+            <h3>我想参加的比赛</h3>
+            <p class="innx-hint">把想打的比赛收进来，按报名截止倒计时排。推进阶段记录你到哪一步了。</p>
+
+            <div class="innx-wish-stats">
+              <span><strong>{{ wishStats.total }}</strong> 项意向</span>
+              <span :class="{ 'is-warn': wishStats.soon > 0 }"><strong>{{ wishStats.soon }}</strong> 项 30 天内截止</span>
+              <span><strong>{{ wishStats.registered }}</strong> 项已报名</span>
+            </div>
+
+            <label class="innx-field">从竞赛库选
+              <select v-model="wishPick">
+                <option value="">— 选一个竞赛 —</option>
+                <option v-for="comp in competitions" :key="comp.id" :value="comp.name">{{ comp.name }}</option>
+              </select>
+            </label>
+            <button class="ink-button" type="button" @click="addWishFromCatalog">加入意向</button>
+
+            <div class="innx-wish-manual">
+              <label class="innx-field">或者手填名称<input v-model="wishManual" placeholder="例如：中国高校计算机大赛" maxlength="120"></label>
+              <label class="innx-field">报名截止<input v-model="wishDeadline" type="date"></label>
+              <button class="ink-button" type="button" @click="addWishManual">加进去</button>
+            </div>
+
+            <p v-if="wishNotice" class="innx-notice">{{ wishNotice }}</p>
+
+            <ul v-if="sortedWishlist.length" class="innx-wish-list">
+              <li v-for="row in sortedWishlist" :key="row.id" class="innx-wish-row">
+                <div class="innx-wish-head">
+                  <strong>{{ row.name }}</strong>
+                  <span class="innx-wish-count" :class="wishTone(row.deadline)">{{ wishCountdown(row.deadline) }}</span>
+                </div>
+                <div class="innx-wish-foot">
+                  <button type="button" class="innx-stage" :class="`is-stage-${WISH_STAGES.indexOf(row.stage as (typeof WISH_STAGES)[number])}`" @click="advanceStage(row)">
+                    {{ row.stage }} · 点一下推进
+                  </button>
+                  <span class="innx-wish-actions">
+                    <button type="button" class="innx-mini" @click="wishToRecruit(row)">去招人</button>
+                    <button type="button" class="innx-mini is-ghost" title="移除" @click="removeWish(row.id)">×</button>
+                  </span>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="innx-empty">还没有意向。从上面挑一个比赛加进来，报名季就不会漏。</p>
+          </div>
+
+          <!-- 招人板块 -->
+          <div v-if="activeTool==='recruit'" class="innx-panel">
+            <h3>招人板块</h3>
+            <p class="innx-hint">先填「我的技能」，后端按技能向量算你和每条招募的重合度，再决定申请哪队。</p>
+
+            <div class="innx-sub-head">
+              <span>我的技能</span>
+              <button type="button" class="innx-mini" @click="addMySkill">+ 加一项</button>
+            </div>
+            <div v-for="(weight, skill) in mySkills" :key="skill" class="innx-slider-row">
+              <span class="innx-skill-name">{{ skill }}</span>
+              <input type="range" min="0" max="1" step="0.1" :value="weight" @input="setMySkill(String(skill), $event)">
+              <em>{{ Math.round(Number(weight) * 100) }}</em>
+              <button type="button" class="innx-mini is-ghost" title="移除" @click="removeMySkill(String(skill))">×</button>
+            </div>
+
+            <button class="ink-button primary" type="button" :disabled="recruitBusy" @click="loadRecruitBoard">
+              {{ recruitBusy ? '加载中…' : '看谁能带我' }}
+            </button>
+            <p v-if="recruitNotice" class="innx-notice">{{ recruitNotice }}</p>
+
+            <div v-if="recruitPosts.length" class="innx-recruit-list">
+              <article v-for="post in recruitPosts" :key="post.post_id" class="innx-recruit-card">
+                <div class="innx-recruit-head">
+                  <strong>{{ post.title }}</strong>
+                  <span v-if="post.match" class="innx-recruit-score" :style="{ color: scoreColor(post.match.score) }">
+                    {{ Math.round(post.match.score * 100) }}%
+                  </span>
+                  <span v-else class="innx-recruit-score is-none">技能不重合</span>
+                </div>
+                <p class="innx-recruit-meta">{{ post.competition }} · {{ post.owner }} · 缺 {{ post.slots }} 人 · 截止 {{ post.deadline }}</p>
+                <p class="innx-recruit-note">{{ post.note }}</p>
+                <p class="innx-recruit-skills">要：{{ skillWeightText(post.skills) }}</p>
+                <div v-if="post.match && post.match.matched_skills.length" class="innx-match-skills">
+                  <span v-for="skill in post.match.matched_skills" :key="skill">{{ skill }}</span>
+                </div>
+                <button
+                  type="button"
+                  class="innx-mini"
+                  :class="{ 'is-applied': hasApplied(post.post_id) }"
+                  @click="applyPost(post)"
+                >{{ hasApplied(post.post_id) ? '已申请' : '申请加入' }}</button>
+              </article>
+            </div>
+
+            <div class="innx-sub-head">
+              <span>我发布的招募（{{ recruitMine.length }}）</span>
+            </div>
+            <label class="innx-field">参加哪个比赛<input v-model="recruitForm.competition" placeholder="例如：中国大学生计算机设计大赛" maxlength="120"></label>
+            <label class="innx-field">缺什么人<input v-model="recruitForm.title" placeholder="例如：缺一个做视觉的" maxlength="80"></label>
+            <label class="innx-field">缺几人<input v-model.number="recruitForm.slots" type="number" min="1" max="10"></label>
+            <label class="innx-field">报名截止<input v-model="recruitForm.deadline" type="date"></label>
+            <label class="innx-field">补充说明<textarea v-model="recruitForm.note" rows="2" maxlength="300" placeholder="现有几人、做什么方向、对什么技能有要求…"></textarea></label>
+            <button class="ink-button primary" type="button" @click="publishRecruit">发布招募</button>
+
+            <ul v-if="recruitMine.length" class="innx-mine-list">
+              <li v-for="row in recruitMine" :key="row.id">
+                <div>
+                  <strong>{{ row.title }}</strong>
+                  <p>{{ row.competition }} · 缺 {{ row.slots }} 人<span v-if="row.deadline"> · 截止 {{ row.deadline }}</span></p>
+                  <p v-if="Object.keys(row.skills).length" class="innx-mine-skills">要：{{ skillWeightText(row.skills) }}</p>
+                </div>
+                <button type="button" class="innx-mini is-ghost" title="下架" @click="removeMyRecruit(row.id)">×</button>
+              </li>
+            </ul>
+            <p v-else class="innx-empty">还没发过招募。填完上面几项就能挂出来。</p>
+          </div>
+
+          <!-- 组队匹配 -->
+          <div v-if="activeTool==='team'" class="innx-panel">
+            <h3>组队匹配</h3>
+            <p class="innx-hint">按技能向量算加权相似度。权重越高，这项越关键。</p>
+
+            <label class="innx-field">项目名<input v-model="teamProject" maxlength="80"></label>
+
+            <div class="innx-sub-head">
+              <span>技能权重</span>
+              <button type="button" class="innx-mini" @click="addTeamSkill">+ 加一项</button>
+            </div>
+            <div v-for="(weight, skill) in teamSkills" :key="skill" class="innx-slider-row">
+              <span class="innx-skill-name">{{ skill }}</span>
+              <input type="range" min="0" max="1" step="0.1" :value="weight" @input="setWeight(String(skill), $event)">
+              <em>{{ Math.round(Number(weight) * 100) }}</em>
+              <button type="button" class="innx-mini is-ghost" title="移除" @click="removeTeamSkill(String(skill))">×</button>
+            </div>
+
+            <div class="innx-sub-head">
+              <span>候选人（{{ teamCandidates.length }}）</span>
+              <span class="innx-sub-actions">
+                <button type="button" class="innx-mini" @click="fillDemoCandidates">示例</button>
+                <button type="button" class="innx-mini" @click="addCandidate">+ 添加</button>
+              </span>
+            </div>
+
+            <div v-for="(candidate, index) in teamCandidates" :key="index" class="innx-candidate">
+              <div class="innx-candidate-head">
+                <input :value="candidateName(index)" maxlength="20" @input="setCandidateName(index, $event)">
+                <button type="button" class="innx-mini is-ghost" @click="removeCandidate(index)">×</button>
+              </div>
+              <div v-for="(_, skill) in teamSkills" :key="skill" class="innx-slider-row is-compact">
+                <span class="innx-skill-name">{{ skill }}</span>
+                <input type="range" min="0" max="1" step="0.1" :value="candidateSkill(index, String(skill))" @input="setCandidateSkill(index, String(skill), $event)">
+                <em>{{ Math.round(candidateSkill(index, String(skill)) * 100) }}</em>
+              </div>
+            </div>
+
+            <button class="ink-button primary" type="button" :disabled="teamBusy" @click="runMatch">
+              {{ teamBusy ? '匹配中…' : '开始匹配' }}
+            </button>
+            <p v-if="teamNotice" class="innx-notice">{{ teamNotice }}</p>
+
+            <div v-if="teamMatches.length" class="innx-matches">
+              <div v-for="(match, index) in teamMatches" :key="match.student_id" class="innx-match-row">
+                <div class="innx-match-head">
+                  <strong>{{ match.display_name }}</strong>
+                  <span v-if="index === 0" class="innx-best">最优</span>
+                  <em :style="{ color: scoreColor(match.score) }">{{ Math.round(match.score * 100) }}%</em>
+                </div>
+                <div class="innx-match-bar">
+                  <i :style="{ width: `${Math.round(match.score * 100)}%`, background: scoreColor(match.score) }" />
+                </div>
+                <div class="innx-match-skills">
+                  <span v-for="skill in match.matched_skills" :key="skill">{{ skill }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 申报大纲 -->
+          <div v-if="activeTool==='proposal'" class="innx-panel">
+            <h3>申报大纲</h3>
+            <p class="innx-hint">按项目名、赛事和技术关键词生成章节骨架，导出后直接往里面填内容。</p>
+            <label class="innx-field">项目名<input v-model="proposalProject" placeholder="例如：校园智能助手" maxlength="80"></label>
+            <label class="innx-field">参赛赛事<input v-model="proposalCompetition" placeholder="例如：中国大学生计算机设计大赛" maxlength="120"></label>
+            <label class="innx-field">技术关键词<input v-model="proposalKeywords" placeholder="FastAPI、Vue3、多 Agent（逗号分隔）" maxlength="200"></label>
+            <button class="ink-button primary" type="button" :disabled="proposalBusy" @click="generateProposal">
+              {{ proposalBusy ? '生成中…' : '生成大纲' }}
+            </button>
+            <p v-if="proposalNotice" class="innx-notice">{{ proposalNotice }}</p>
+
+            <div v-if="proposalOutline" class="innx-outline">
+              <p class="innx-outline-head">{{ proposalOutline.project_name }} · {{ proposalOutline.competition_name }}</p>
+              <ol>
+                <li v-for="section in proposalOutline.sections" :key="section">{{ section }}</li>
+              </ol>
+              <div class="innx-outline-actions">
+                <button type="button" class="innx-mini" @click="copyProposal">复制全文</button>
+                <button type="button" class="innx-mini" @click="exportProposal">导出 Markdown</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 上传成果（staff） -->
+          <div v-if="activeTool==='upload' && isStaff" class="innx-panel">
             <h3>上传竞赛成果</h3>
-            <p>一键导入全年竞赛获奖数据</p>
-            <button class="ink-button primary" @click="error='功能开发中...'">导入竞赛数据</button>
+            <p class="innx-hint">批量导入获奖数据，导入后进入审核大厅。</p>
+            <button class="ink-button primary" type="button" @click="error='批量导入需要管理员在上传页操作，当前演示环境未开放'">导入竞赛数据</button>
+            <p class="innx-notice">演示环境保留入口，实际导入由管理员在后台完成。</p>
           </div>
         </section>
+
+        <!-- 我的参赛档案 -->
+        <div class="innx-archive">
+          <div class="innx-archive-head">
+            <h3>我的参赛档案</h3>
+            <button v-if="submissions.length" type="button" class="innx-mini is-ghost" @click="clearSubmissions">清空</button>
+          </div>
+          <p class="innx-archive-stats">
+            已提交 {{ submissionStats.total }} 项 · 待审 {{ submissionStats.pending }} · 通过 {{ submissionStats.approved }}
+          </p>
+          <ul v-if="submissions.length" class="innx-archive-list">
+            <li v-for="row in submissions" :key="row.id + row.at">
+              <span class="innx-archive-time">{{ row.at.slice(5, 16).replace('T', ' ') }}</span>
+              <span class="innx-archive-name">{{ row.name }}</span>
+              <span class="innx-archive-badge" :class="`is-${row.status}`">
+                {{ row.status === 'pending' ? '待审' : row.status === 'approved' ? '通过' : '驳回' }}
+              </span>
+            </li>
+          </ul>
+          <p v-else class="innx-archive-empty">提交竞赛后会记在这里，换设备前记得截图。</p>
+        </div>
+
         <div class="stats-panel">
           <h3>竞赛统计</h3>
           <div class="stat-item"><span>竞赛数</span><span class="stat-value">{{ competitions.length }}</span></div>
@@ -440,3 +1302,615 @@ onMounted(() => { fetchCompetitions() })
     </template>
   </section>
 </template>
+
+<style scoped>
+/* ---------- 工具面板 ---------- */
+.innx-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.innx-panel h3 {
+  margin: 0;
+  color: #2f4a45;
+  font-size: 15px;
+}
+
+.innx-hint {
+  margin: 0;
+  color: #7b8b86;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.innx-field {
+  display: grid;
+  gap: 5px;
+  color: #5d6f6a;
+  font-size: 12px;
+}
+
+.innx-field input,
+.innx-field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(47, 74, 69, 0.16);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #22302d;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.innx-field input:focus,
+.innx-field textarea:focus {
+  outline: 2px solid rgba(47, 122, 82, 0.28);
+  border-color: rgba(47, 122, 82, 0.4);
+}
+
+.innx-notice {
+  margin: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: rgba(47, 122, 82, 0.08);
+  color: #2f7a52;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.innx-sub-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  color: #5d6f6a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.innx-sub-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.innx-mini {
+  padding: 3px 8px;
+  border: 1px solid rgba(47, 74, 69, 0.18);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #3f5350;
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.innx-mini:hover {
+  border-color: rgba(47, 122, 82, 0.45);
+  color: #2f7a52;
+}
+
+.innx-mini.is-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: #97a5a0;
+}
+
+.innx-mini.is-ghost:hover {
+  color: #b84a30;
+}
+
+/* ---------- 技能滑块 ---------- */
+.innx-slider-row {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr) 30px 18px;
+  gap: 7px;
+  align-items: center;
+}
+
+.innx-slider-row.is-compact {
+  grid-template-columns: 68px minmax(0, 1fr) 30px;
+}
+
+.innx-slider-row input[type='range'] {
+  width: 100%;
+  accent-color: #2f7a52;
+}
+
+.innx-skill-name {
+  overflow: hidden;
+  color: #4a5f5a;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.innx-slider-row em {
+  color: #7b8b86;
+  font-size: 11px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ---------- 候选人 ---------- */
+.innx-candidate {
+  padding: 9px 10px;
+  border: 1px solid rgba(47, 74, 69, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 253, 248, 0.7);
+}
+
+.innx-candidate-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.innx-candidate-head input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid rgba(47, 74, 69, 0.14);
+  border-radius: 7px;
+  background: #fff;
+  color: #22302d;
+  font-size: 12.5px;
+  font-family: inherit;
+}
+
+/* ---------- 匹配结果 ---------- */
+.innx-matches {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(47, 74, 69, 0.16);
+}
+
+.innx-match-row {
+  display: grid;
+  gap: 5px;
+}
+
+.innx-match-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.innx-match-head strong {
+  color: #22302d;
+  font-size: 13px;
+}
+
+.innx-match-head em {
+  margin-left: auto;
+  font-size: 12.5px;
+  font-style: normal;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.innx-best {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(47, 122, 82, 0.14);
+  color: #2f7a52;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.innx-match-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(47, 74, 69, 0.09);
+}
+
+.innx-match-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.3s ease;
+}
+
+.innx-match-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.innx-match-skills span {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(47, 74, 69, 0.07);
+  color: #5d6f6a;
+  font-size: 10.5px;
+}
+
+/* ---------- 侧栏计数徽标 ---------- */
+.innovation-rail button em {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(47, 74, 69, 0.12);
+  color: #2f4a45;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.innovation-rail button.active em {
+  background: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+
+/* ---------- 我想参加的比赛 ---------- */
+.innx-wish-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-bottom: 10px;
+  color: #6a7b76;
+  font-size: 11.5px;
+}
+
+.innx-wish-stats strong {
+  color: #2f4a45;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.innx-wish-stats .is-warn strong {
+  color: #b3261e;
+}
+
+.innx-wish-manual {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(47, 74, 69, 0.14);
+}
+
+.innx-wish-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.innx-wish-row {
+  padding: 9px 11px;
+  border: 1px solid rgba(47, 74, 69, 0.12);
+  border-radius: 11px;
+  background: rgba(255, 253, 248, 0.9);
+}
+
+.innx-wish-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.innx-wish-head strong {
+  color: #2f4a45;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.innx-wish-count {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.innx-wish-count.is-normal {
+  background: rgba(47, 122, 82, 0.12);
+  color: #2f7a52;
+}
+
+.innx-wish-count.is-soon {
+  background: rgba(201, 138, 43, 0.16);
+  color: #a06c14;
+}
+
+.innx-wish-count.is-over {
+  background: rgba(179, 38, 30, 0.12);
+  color: #b3261e;
+}
+
+.innx-wish-count.is-none {
+  background: rgba(47, 74, 69, 0.08);
+  color: #7b8b86;
+}
+
+.innx-wish-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.innx-stage {
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: rgba(47, 74, 69, 0.08);
+  color: #46605a;
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.innx-stage:hover {
+  background: rgba(47, 74, 69, 0.16);
+}
+
+.innx-stage.is-stage-2 {
+  background: rgba(201, 138, 43, 0.16);
+  color: #a06c14;
+}
+
+.innx-stage.is-stage-3,
+.innx-stage.is-stage-4 {
+  background: rgba(47, 122, 82, 0.16);
+  color: #2f7a52;
+}
+
+.innx-wish-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.innx-empty {
+  margin: 10px 0 0;
+  padding: 12px;
+  border: 1px dashed rgba(47, 74, 69, 0.18);
+  border-radius: 11px;
+  color: #7b8b86;
+  font-size: 11.5px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+/* ---------- 招人板块 ---------- */
+.innx-recruit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+
+.innx-recruit-card {
+  padding: 10px 12px;
+  border: 1px solid rgba(47, 74, 69, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.92);
+}
+
+.innx-recruit-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.innx-recruit-head strong {
+  color: #2f4a45;
+  font-size: 12.5px;
+}
+
+.innx-recruit-score {
+  flex: none;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.innx-recruit-score.is-none {
+  color: #a4b0ab;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.innx-recruit-meta {
+  margin: 3px 0 0;
+  color: #7b8b86;
+  font-size: 10.5px;
+  line-height: 1.6;
+}
+
+.innx-recruit-note {
+  margin: 5px 0 0;
+  color: #4a5f5a;
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+
+.innx-recruit-skills {
+  margin: 5px 0 0;
+  color: #8a9994;
+  font-size: 10.5px;
+}
+
+.innx-recruit-card .innx-match-skills {
+  margin-top: 5px;
+}
+
+.innx-recruit-card .innx-mini {
+  margin-top: 7px;
+}
+
+.innx-mini.is-applied {
+  background: rgba(47, 122, 82, 0.14);
+  color: #2f7a52;
+  cursor: default;
+}
+
+.innx-mine-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.innx-mine-list li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-left: 3px solid rgba(47, 74, 69, 0.22);
+  border-radius: 0 9px 9px 0;
+  background: rgba(47, 74, 69, 0.04);
+}
+
+.innx-mine-list strong {
+  color: #2f4a45;
+  font-size: 12px;
+}
+
+.innx-mine-list p {
+  margin: 2px 0 0;
+  color: #7b8b86;
+  font-size: 10.5px;
+  line-height: 1.6;
+}
+
+.innx-mine-list .innx-mine-skills {
+  color: #8a9994;
+}
+
+/* ---------- 申报大纲 ---------- */
+.innx-outline {
+  margin-top: 4px;
+  padding: 11px 12px;
+  border: 1px solid rgba(47, 74, 69, 0.12);
+  border-radius: 11px;
+  background: rgba(255, 253, 248, 0.85);
+}
+
+.innx-outline-head {
+  margin: 0 0 8px;
+  color: #2f4a45;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.innx-outline ol {
+  margin: 0;
+  padding-left: 18px;
+  color: #3f5350;
+  font-size: 12.5px;
+  line-height: 1.9;
+}
+
+.innx-outline-actions {
+  display: flex;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+/* ---------- 参赛档案 ---------- */
+.innx-archive {
+  margin-top: 14px;
+  padding: 12px 13px;
+  border: 1px solid rgba(47, 74, 69, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.72);
+}
+
+.innx-archive-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.innx-archive-head h3 {
+  margin: 0;
+  color: #2f4a45;
+  font-size: 13px;
+}
+
+.innx-archive-stats {
+  margin: 6px 0 8px;
+  color: #7b8b86;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.innx-archive-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.innx-archive-list li {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  font-size: 11.5px;
+}
+
+.innx-archive-time {
+  color: #97a5a0;
+  font-variant-numeric: tabular-nums;
+}
+
+.innx-archive-name {
+  overflow: hidden;
+  color: #3f5350;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.innx-archive-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.innx-archive-badge.is-pending {
+  background: rgba(201, 138, 43, 0.14);
+  color: #a5701c;
+}
+
+.innx-archive-badge.is-approved {
+  background: rgba(47, 122, 82, 0.14);
+  color: #2f7a52;
+}
+
+.innx-archive-badge.is-rejected {
+  background: rgba(184, 74, 48, 0.13);
+  color: #b84a30;
+}
+
+.innx-archive-empty {
+  margin: 0;
+  color: #97a5a0;
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+</style>

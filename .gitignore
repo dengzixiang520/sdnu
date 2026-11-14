@@ -1,5 +1,7 @@
 .env
 .venv/
+# 改动前的本地备份，只做本地保险，不进仓库
+backups/
 __pycache__/
 .pytest_cache/
 *.py[cod]
@@ -16,3 +18,4 @@ web/dist/
 # 绿色便携运行时与构建残留（体积大，可由 启动.bat 自动重建）
 runtime/
 build/
+classroom-preview.backup-*.html

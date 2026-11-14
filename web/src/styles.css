@@ -106,7 +106,62 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
 .counselor-wall header p { color: var(--muted); }.wall-notes { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }.wall-notes article { min-height: 130px; padding: 1rem; background: #fff4c9; border-radius: 3px 12px 12px 12px; transform: rotate(-.5deg); }.wall-notes article:nth-child(2n) { background: #e3eee7; transform: rotate(.5deg); }.wall-notes small { color: #7e6a38; font-weight: 750; }.wall-notes p { line-height: 1.7; }.wall-publisher { margin-bottom: 1rem; display: grid; grid-template-columns: .45fr 1.2fr auto; gap: .6rem; }.wall-publisher textarea { min-height: 44px; }.wall-publisher div { display: flex; flex-direction: column; justify-content: flex-end; gap: .3rem; }.wall-publisher button { min-height: 42px; color: white; background: var(--navy); border: 0; border-radius: 9px; }
 .wellbeing-rail { position: sticky; top: 88px; padding: 20px; background: #1c4648; border-radius: 22px; color: #eaf3ef; box-shadow: 0 20px 44px rgba(18,56,58,.2); }.wellbeing-rail > header { display: flex; gap: .7rem; }.wellbeing-rail > header > span { width: 42px; height: 42px; display: grid; place-items: center; color: #173f43; background: #f7dc94; border-radius: 12px; }.wellbeing-rail h2 { margin: 0; font: 400 1.25rem "LXGW WenKai", cursive; }.wellbeing-rail header p { margin: .2rem 0; color: #b9d0ca; font-size: .78rem; }
 .now-playing { margin: 1.2rem 0; padding: .85rem; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .7rem; background: rgba(255,255,255,.07); border-radius: 14px; }.record { width: 42px; height: 42px; display: grid; place-items: center; background: #172b2a; border: 6px double #6b827c; border-radius: 50%; }.record i { width: 7px; height: 7px; background: #f7dc94; border-radius: 50%; }.record.spinning { animation: spin 3s linear infinite; }.now-playing div:nth-child(2) { min-width: 0; display: grid; }.now-playing small { color: #9eb7b0; }.now-playing strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }.now-playing button { color: #eaf3ef; background: transparent; border: 0; }
-.sound-presets { display: grid; gap: 8px; }.sound-presets button { min-height: 42px; padding: .6rem .7rem; display: flex; align-items: center; gap: .6rem; color: #cce0da; background: transparent; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; text-align: left; }.sound-presets button:hover, .sound-presets button.active { color: #173f43; background: #f7dc94; border-color: #f7dc94; }.sound-volume { margin: 1rem 0; grid-template-columns: auto 1fr 2.5rem; align-items: center; color: #cce0da; }.sound-volume input, .local-track input { min-height: 0; padding: 0; accent-color: #f7dc94; }.sound-volume b { text-align: right; font-size: .72rem; }.local-upload { width: 100%; min-height: 56px; display: flex; align-items: center; gap: .7rem; padding: .7rem; color: #eaf3ef; text-align: left; background: rgba(255,255,255,.05); border: 1px dashed rgba(255,255,255,.25); border-radius: 12px; }.local-upload span { display: grid; }.local-upload small { color: #a9c1ba; }.local-track { padding: .75rem; background: rgba(255,255,255,.06); border-radius: 12px; }.local-track > div { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .55rem; }.local-track button { color: #eaf3ef; background: transparent; border: 0; }.local-track strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .78rem; }.local-track label { margin-top: .55rem; display: grid; grid-template-columns: 2.2rem 1fr 2.2rem; align-items: center; color: #b5cbc5; font-size: .68rem; }.sound-privacy { margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,.12); }.sound-privacy strong { color: #f7dc94; font-size: .78rem; }.sound-privacy p { margin: .35rem 0 0; color: #abc1bb; font-size: .75rem; line-height: 1.65; }
+.sound-presets { display: grid; gap: 8px; }.sound-presets button { min-height: 42px; padding: .6rem .7rem; display: flex; align-items: center; gap: .6rem; color: #cce0da; background: transparent; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; text-align: left; }.sound-presets button:hover, .sound-presets button.active { color: #173f43; background: #f7dc94; border-color: #f7dc94; }
+.sound-presets button > span { display: grid; gap: 1px; min-width: 0; }
+.sound-presets button strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; font-weight: 600; }
+.sound-presets button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9eb7b0; font-size: .68rem; }
+.sound-presets button:hover small, .sound-presets button.active small { color: #4a5c58; }
+.sound-progress { margin: .8rem 0 0; display: grid; grid-template-columns: 2.2rem 1fr 2.2rem; align-items: center; color: #b5cbc5; font-size: .68rem; }
+.sound-progress input { min-height: 0; padding: 0; accent-color: #f7dc94; touch-action: none; }
+.now-playing em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #8fb0a9; font-size: .68rem; font-style: normal; }
+.sound-search { margin: 0 0 .7rem; display: flex; gap: .4rem; }
+.sound-search label { flex: 1; min-width: 0; display: flex; align-items: center; gap: .4rem; padding: .42rem .55rem; color: #9eb7b0; background: rgba(255,255,255,.08); border-radius: 10px; }
+.sound-search input { flex: 1; min-width: 0; min-height: 0; padding: 0; color: #eaf3ef; font-size: .8rem; background: transparent; border: 0; }
+.sound-search input::placeholder { color: #7f9a94; }
+.sound-search label button { display: grid; place-items: center; color: #9eb7b0; background: transparent; border: 0; }
+.sound-search-go { flex-shrink: 0; padding: 0 .7rem; color: #173f43; font-size: .78rem; font-weight: 600; background: #f7dc94; border: 0; border-radius: 10px; }
+.sound-search-go:disabled { opacity: .45; }
+.sound-results { max-height: 232px; margin: 0 0 .8rem; padding: 0; overflow-y: auto; list-style: none; display: grid; gap: 4px; scrollbar-width: thin; }
+.sound-results button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .45rem .55rem; color: #cce0da; text-align: left; background: rgba(255,255,255,.05); border: 1px solid transparent; border-radius: 9px; }
+.sound-results button:hover { background: rgba(247,220,148,.16); }
+.sound-results button.active { color: #173f43; background: #f7dc94; }
+.result-main { display: grid; min-width: 0; }
+.result-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .78rem; font-weight: 600; }
+.result-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9eb7b0; font-size: .68rem; }
+.sound-results button.active small, .sound-results button.active .result-time { color: #4a5c58; }
+.result-time { flex-shrink: 0; color: #8fb0a9; font-size: .66rem; }
+.result-vip { flex-shrink: 0; padding: .05rem .3rem; color: #f2b8a2; font-size: .6rem; font-style: normal; font-weight: 700; border: 1px solid rgba(242,184,162,.5); border-radius: 4px; }
+.sound-results button.active .result-vip { color: #8a4a2f; border-color: rgba(138,74,47,.55); }
+.sound-empty, .sound-note { margin: 0 0 .8rem; color: #9eb7b0; font-size: .74rem; line-height: 1.6; }
+.sound-label { margin: .2rem 0 .45rem; color: #9eb7b0; font-size: .7rem; letter-spacing: .04em; }
+.sound-actions { margin: .2rem 0 .8rem; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sound-actions button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: .35rem; color: #cce0da; font-size: .78rem; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; }
+.sound-actions button:hover:not(:disabled), .sound-actions button.active { color: #173f43; background: #f7dc94; border-color: #f7dc94; }
+.sound-actions button:disabled { opacity: .4; }
+.wellbeing-rail { max-height: calc(100vh - 112px); overflow-y: auto; scrollbar-width: thin; padding-bottom: 96px; }
+/* 宠物是 fixed + z-index 110，被拖到右侧时会压住播放器。只把交互控件提到它上面，
+   侧栏本身不提层级，宠物在别的区域仍然可见、可拖。 */
+.sound-actions, .sound-volume, .sound-progress, .now-playing, .sound-search, .sound-results { position: relative; z-index: 130; }
+.lyric-stage { position: fixed; z-index: 95; width: min(560px, calc(100vw - 48px)); max-height: min(70vh, 640px); display: flex; flex-direction: column; color: #eaf3ef; background: rgba(17,42,44,.94); backdrop-filter: blur(16px); border: 1px solid rgba(247,220,148,.3); border-radius: 18px; box-shadow: 0 28px 70px rgba(8,24,26,.5); }
+.lyric-bar { display: flex; align-items: center; justify-content: space-between; gap: .6rem; padding: .55rem .7rem; border-bottom: 1px solid rgba(255,255,255,.1); cursor: grab; touch-action: none; }
+.lyric-bar:active { cursor: grabbing; }
+.lyric-meta { display: grid; min-width: 0; }
+.lyric-meta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; }
+.lyric-meta small { color: #9eb7b0; font-size: .7rem; }
+.lyric-tools { flex-shrink: 0; display: flex; gap: .3rem; }
+.lyric-tools button { display: inline-flex; align-items: center; gap: .2rem; padding: .28rem .5rem; color: #cce0da; font-size: .72rem; background: rgba(255,255,255,.08); border: 0; border-radius: 8px; }
+.lyric-tools button:hover { color: #173f43; background: #f7dc94; }
+.lyric-body { flex: 1; min-height: 0; padding: 1rem 1.1rem; overflow-y: auto; scroll-behavior: smooth; }
+.lyric-body p { margin: 0 0 .5rem; color: #a9c1bb; font-size: var(--lyric-size, 22px); line-height: 1.55; cursor: pointer; transition: color .18s, transform .18s; }
+.lyric-body p:hover { color: #dcebe6; }
+.lyric-body p.active { color: #f7dc94; font-weight: 600; transform: translateX(4px); }
+.lyric-hint { color: #9eb7b0; font-size: .82rem; }
+.lyric-foot { display: flex; align-items: center; justify-content: space-between; padding: .4rem .8rem .5rem; color: #7f9a94; font-size: .68rem; border-top: 1px solid rgba(255,255,255,.08); }
+.lyric-foot b { color: #cce0da; }
+.lyric-stage.is-vertical { width: auto; max-width: min(80vw, 780px); }
+.lyric-stage.is-vertical .lyric-body { flex: none; height: 48vh; max-height: 48vh; padding: .9rem; overflow-x: auto; overflow-y: hidden; writing-mode: vertical-rl; }
+.lyric-stage.is-vertical .lyric-body p { margin: 0 0 0 .5rem; }
+.lyric-stage.is-vertical .lyric-body p.active { transform: translateY(-4px); }.sound-volume { margin: 1rem 0; grid-template-columns: auto 1fr 2.5rem; align-items: center; color: #cce0da; }.sound-volume input, .local-track input { min-height: 0; padding: 0; accent-color: #f7dc94; touch-action: none; }.sound-volume b { text-align: right; font-size: .72rem; }.local-upload { width: 100%; min-height: 56px; display: flex; align-items: center; gap: .7rem; padding: .7rem; color: #eaf3ef; text-align: left; background: rgba(255,255,255,.05); border: 1px dashed rgba(255,255,255,.25); border-radius: 12px; }.local-upload span { display: grid; }.local-upload small { color: #a9c1ba; }.local-track { padding: .75rem; background: rgba(255,255,255,.06); border-radius: 12px; }.local-track > div { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .55rem; }.local-track button { color: #eaf3ef; background: transparent; border: 0; }.local-track strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .78rem; }.local-track label { margin-top: .55rem; display: grid; grid-template-columns: 2.2rem 1fr 2.2rem; align-items: center; color: #b5cbc5; font-size: .68rem; }.sound-privacy { margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,.12); }.sound-privacy strong { color: #f7dc94; font-size: .78rem; }.sound-privacy p { margin: .35rem 0 0; color: #abc1bb; font-size: .75rem; line-height: 1.65; }
 
 /* Academic */
 .academic-hub, .interview-room, .notes-studio, .study-plan-page { max-width: 1340px; margin: 0 auto; }.academic-hub-head { min-height: 280px; padding: 34px; display: flex; justify-content: space-between; align-items: flex-end; color: #f5f3e9; background: #253854; border-radius: 26px; box-shadow: 0 22px 50px rgba(37,56,84,.2); }.academic-hub-head h1 { margin: 0; font: 400 clamp(2.7rem,5vw,5rem)/1.04 "LXGW WenKai", cursive; letter-spacing: -.05em; }.academic-hub-head em { color: #efbf62; font-style: normal; }.academic-hub-head p { max-width: 52ch; color: #cad3de; line-height: 1.7; }.study-snapshot { width: 190px; padding: 1.2rem; display: grid; gap: .4rem; color: #253854; background: #f2c96f; border-radius: 4px 18px 18px 18px; transform: rotate(1.5deg); }.study-snapshot span { font-size: .78rem; }
@@ -1276,6 +1331,11 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   display: none;
 }
 
+/* 和照片选择器分开：两者都是隐藏的 file input，共用一个 class 会让脚本选错。 */
+.memory-import-input {
+  display: none;
+}
+
 .photo-hint {
   font-size: 12px;
   color: #7b8b88;
@@ -1340,6 +1400,35 @@ label { display: grid; gap: .42rem; color: #435956; font-size: .84rem; font-weig
   margin: 0;
   font: 400 1.15rem "LXGW WenKai", cursive;
   color: #172b2a;
+}
+
+.memory-head-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-self: center;
+  gap: 8px;
+}
+
+.memory-tool {
+  padding: .3rem .6rem;
+  color: #2c5c58;
+  font-size: .72rem;
+  background: rgba(44, 92, 88, .08);
+  border: 1px solid rgba(44, 92, 88, .2);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.memory-tool:hover:not(:disabled) {
+  color: #fff;
+  background: #2c5c58;
+  border-color: #2c5c58;
+}
+
+.memory-tool:disabled {
+  opacity: .45;
+  cursor: not-allowed;
 }
 
 .memory-timeline-head span {

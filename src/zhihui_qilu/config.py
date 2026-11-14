@@ -74,6 +74,15 @@ class Settings(BaseSettings):
     mimo_asr_timeout_seconds: float = Field(default=120.0, gt=0, le=600)
     mimo_asr_max_bytes: int = Field(default=8 * 1024 * 1024, ge=64 * 1024, le=32 * 1024 * 1024)
 
+    # 音乐搜索/播放/歌词默认走网易云公开接口，零外部依赖。
+    # 若本机开着 AlgerMusicPlayer（127.0.0.1:30488 的 netease-cloud-music-api），
+    # 把 ZHQ_MUSIC_API 设成该地址即可优先走它，能拿到更高音质与部分受限曲目。
+    music_api_base: str = ""
+    music_request_timeout_seconds: float = Field(default=12.0, gt=0, le=60)
+    # 会员专属曲目（fee=1）匿名态拿不到地址，只有带上登录 cookie 才有。
+    # 从 music.163.com 登录后复制整串 cookie 填进来，只写 .env，不进版本库。
+    music_cookie: SecretStr | None = None
+
     database_url: str | None = None
     redis_url: str | None = None
     memory_backend: Literal["memory", "sqlite"] = "memory"

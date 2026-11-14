@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { command, requestJson } from '../api'
 
 // 课程颜色映射
@@ -79,6 +79,9 @@ async function loadSavedTimetable() {
 onMounted(() => {
   loadSavedTimetable()
   loadMemoryRecords()
+  loadDutyWeek()
+  loadScheduleOwner()
+  loadExpenseLog()
 })
 
 interface TimetableEvent { 
@@ -272,6 +275,86 @@ function removeMemoryRecord(id: number) {
   persistMemoryRecords()
 }
 
+// 备份：记录只存在这台机器的浏览器里，换设备或清缓存就没了，所以给一份能带走的 JSON。
+const memoryFileInput = ref<HTMLInputElement | null>(null)
+
+function exportMemoryRecords() {
+  if (!memoryRecords.value.length) {
+    memoryNotice.value = '还没有记录可以导出。'
+    return
+  }
+  const payload = {
+    app: 'zhihui-qilu',
+    kind: 'memory-records',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    records: memoryRecords.value,
+  }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+  link.href = url
+  link.download = `美好记录-${stamp}.json`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+  memoryNotice.value = `已导出 ${memoryRecords.value.length} 条记录。`
+}
+
+function chooseMemoryFile() {
+  memoryFileInput.value?.click()
+}
+
+/**
+ * 导入按 id 去重后并入，不会覆盖已有记录。
+ * 也接受裸数组（手写的备份），字段缺什么就补默认值，坏条目直接跳过。
+ */
+async function importMemoryRecords(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  try {
+    const parsed: unknown = JSON.parse(await file.text())
+    const container = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as { records?: unknown }
+    const incoming: unknown = Array.isArray(parsed) ? parsed : container.records
+    if (!Array.isArray(incoming)) {
+      memoryNotice.value = '这个文件里没有记录。'
+      return
+    }
+    const seen = new Set(memoryRecords.value.map((record) => record.id))
+    const merged: MemoryRecord[] = []
+    for (const raw of incoming) {
+      if (!raw || typeof raw !== 'object') continue
+      const record = raw as Partial<MemoryRecord>
+      if (typeof record.id !== 'number' || typeof record.purpose !== 'string') continue
+      if (seen.has(record.id)) continue
+      seen.add(record.id)
+      merged.push({
+        id: record.id,
+        createdAt: typeof record.createdAt === 'string' ? record.createdAt : new Date().toISOString(),
+        purpose: record.purpose,
+        amount: String(record.amount ?? '0'),
+        payer: String(record.payer ?? ''),
+        members: Array.isArray(record.members) ? record.members.map(String) : [],
+        transfers: Array.isArray(record.transfers) ? (record.transfers as Transfer[]) : [],
+        photos: Array.isArray(record.photos) ? record.photos.filter((item): item is string => typeof item === 'string') : [],
+      })
+    }
+    if (!merged.length) {
+      memoryNotice.value = '没有新记录，可能都已经导入过了。'
+      return
+    }
+    memoryRecords.value = [...merged, ...memoryRecords.value].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+    persistMemoryRecords()
+    memoryNotice.value = `已导入 ${merged.length} 条记录。`
+  } catch {
+    memoryNotice.value = '这个文件读不出来，确认是导出的 JSON 备份。'
+  }
+}
+
 function formatMemoryTime(iso: string) {
   try {
     return new Date(iso).toLocaleString('zh-CN', {
@@ -345,6 +428,25 @@ function findClosestSlot(timeStr: string): string | null {
 function toMinutes(time: string): number {
   const [hours, minutes] = time.split(':').map(Number)
   return hours * 60 + minutes
+}
+
+// 时间小工具：不引入 dayjs，统一用浏览器本地时区取「时:分」。
+function pad2(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+function isoToHhmm(iso: string): string {
+  try {
+    const value = new Date(iso)
+    if (Number.isNaN(value.getTime())) return '00:00'
+    return `${pad2(value.getHours())}:${pad2(value.getMinutes())}`
+  } catch {
+    return '00:00'
+  }
+}
+
+function isValidHhmm(value: string): boolean {
+  return /^\d{1,2}:\d{2}$/.test(value)
 }
 
 // 每小节的真实起止（分钟）。课程按「区间重叠」落到小节上，
@@ -423,6 +525,91 @@ const timetableGrid = computed(() => {
   return grid
 })
 
+// ── 课表时间重叠检测 ────────────────────────────────────────────────
+// 同一门课的连续小节不是冲突；只有「两门不同课程时间相交」才标红。
+interface CourseInterval {
+  day: string
+  title: string
+  startTime: string
+  endTime: string
+  start: number
+  end: number
+}
+
+interface ClashPair {
+  key: string
+  day: string
+  first: string
+  firstRange: string
+  second: string
+  secondRange: string
+}
+
+const courseIntervals = computed<CourseInterval[]>(() => {
+  const list: CourseInterval[] = []
+  for (const event of events.value) {
+    const day = event.day_of_week && weekdays.includes(event.day_of_week)
+      ? event.day_of_week
+      : getDayOfWeek(event.starts_at)
+    if (!weekdays.includes(day)) continue
+    const startTime = isoToHhmm(event.starts_at)
+    const endTime = isoToHhmm(event.ends_at)
+    list.push({
+      day,
+      title: event.title,
+      startTime,
+      endTime,
+      start: toMinutes(startTime),
+      end: toMinutes(endTime)
+    })
+  }
+  for (const event of customEvents.value) {
+    list.push({
+      day: event.day,
+      title: event.title,
+      startTime: event.startTime,
+      endTime: event.endTime,
+      start: toMinutes(event.startTime),
+      end: toMinutes(event.endTime)
+    })
+  }
+  return list
+})
+
+const clashInfo = computed(() => {
+  const daySlots: Record<string, Set<string>> = {}
+  const pairs: ClashPair[] = []
+  const list = courseIntervals.value
+  for (let i = 0; i < list.length; i += 1) {
+    for (let j = i + 1; j < list.length; j += 1) {
+      const first = list[i]
+      const second = list[j]
+      if (first.day !== second.day) continue
+      if (first.title === second.title) continue
+      if (Math.max(first.start, second.start) >= Math.min(first.end, second.end)) continue
+      pairs.push({
+        key: `${first.day}-${i}-${j}`,
+        day: first.day,
+        first: first.title,
+        firstRange: `${first.startTime}-${first.endTime}`,
+        second: second.title,
+        secondRange: `${second.startTime}-${second.endTime}`
+      })
+      for (const interval of [first, second]) {
+        const slots = slotsCoveredBy(interval.startTime, interval.endTime)
+        if (!slots.length) continue
+        if (!daySlots[interval.day]) daySlots[interval.day] = new Set<string>()
+        slots.forEach((slot) => daySlots[interval.day].add(slot))
+      }
+    }
+  }
+  return { daySlots, pairs }
+})
+
+function hasClash(day: string, slot: string): boolean {
+  return clashInfo.value.daySlots[day]?.has(slot) ?? false
+}
+
 interface GridEvent {
   id?: number
   title: string
@@ -446,19 +633,21 @@ interface RenderCell {
   border: string
   text: string
   customId: number | null
+  clash: boolean
 }
 
 function buildRenderCell(
   event: GridEvent | null,
   rowspan: 1 | 2,
-  continuation: boolean
+  continuation: boolean,
+  clash: boolean
 ): RenderCell {
   if (!event) {
     return {
       empty: true, rowspan, continuation: false,
       title: '', location: '', teacher: '',
       bg: 'transparent', border: 'transparent', text: 'inherit',
-      customId: null
+      customId: null, clash: false
     }
   }
   const color = getOrAssignColor(event.title)
@@ -472,7 +661,8 @@ function buildRenderCell(
     bg: color.bg,
     border: color.border,
     text: color.text,
-    customId: event.type === 'custom' && typeof event.id === 'number' ? event.id : null
+    customId: event.type === 'custom' && typeof event.id === 'number' ? event.id : null,
+    clash
   }
 }
 
@@ -491,15 +681,22 @@ const mergedBlocks = computed(() => {
       const prevTitle = prevSlot ? (timetableGrid.value[day]?.[prevSlot]?.title ?? null) : null
 
       if (firstEvent && secondEvent && firstEvent.title === secondEvent.title && firstEvent.type === secondEvent.type) {
-        firstCells[day] = buildRenderCell(firstEvent, 2, prevTitle === firstEvent.title)
+        const mergedClash = hasClash(day, first) || hasClash(day, second)
+        firstCells[day] = buildRenderCell(firstEvent, 2, prevTitle === firstEvent.title, mergedClash)
         continue
       }
 
-      firstCells[day] = buildRenderCell(firstEvent, 1, !!firstEvent && prevTitle === firstEvent.title)
+      firstCells[day] = buildRenderCell(
+        firstEvent,
+        1,
+        !!firstEvent && prevTitle === firstEvent.title,
+        hasClash(day, first)
+      )
       secondCells[day] = buildRenderCell(
         secondEvent,
         1,
-        !!secondEvent && !!firstEvent && firstEvent.title === secondEvent.title
+        !!secondEvent && !!firstEvent && firstEvent.title === secondEvent.title,
+        hasClash(day, second)
       )
     }
 
@@ -643,6 +840,18 @@ async function settle() {
       }]
     })
     transfers.value = result.data.transfers as Transfer[]
+    balances.value = normalizeBalances(result.data.balances)
+    // 记账顺手落一条月度流水，图表才能按描述粗分类。
+    const logAmount = Math.round(Number(amount.value) * 100) / 100
+    if (Number.isFinite(logAmount) && logAmount > 0) {
+      appendExpenseLog({
+        description: purpose.value.trim() || '宿舍公用支出',
+        amount: logAmount,
+        payer_id: payer.value.trim(),
+        participant_ids,
+        date: new Date().toISOString()
+      })
+    }
     // 算完账自动落一条回忆记录，不用用户再点保存。
     saveMemoryRecord(true)
     memoryNotice.value = '分摊结果已算好，这条也存进回忆里了。'
@@ -671,6 +880,465 @@ async function improve() {
     error.value = reason instanceof Error ? reason.message : '生成失败'
   }
 }
+
+/* ==================================================================
+ * 值日排班 + 冲突检测
+ * ================================================================== */
+
+interface DutySlot {
+  member: string
+  startTime: string
+  endTime: string
+}
+
+interface DutyAssignmentDto {
+  member_id: string
+  starts_at: string
+  ends_at: string
+  duty_name: string
+}
+
+interface ScheduleEventDto {
+  title: string
+  starts_at: string
+  ends_at: string
+  location?: string
+  source: 'ics' | 'spreadsheet' | 'ocr' | 'text'
+}
+
+interface DutyConflictDto {
+  member_id: string
+  duty: DutyAssignmentDto
+  conflicting_event: ScheduleEventDto
+}
+
+interface DutySuggestionDto {
+  original_member_id: string
+  suggested_member_id: string
+  duty: DutyAssignmentDto
+  rationale: string
+}
+
+const DUTY_STORAGE_KEY = 'zhq-dorm-duty-v1'
+const SCHEDULE_OWNER_KEY = 'zhq-dorm-schedule-owner-v1'
+const EXPENSE_LOG_KEY = 'zhq-dorm-expense-log-v1'
+const DUTY_DEFAULT_START = '20:00'
+const DUTY_DEFAULT_END = '21:00'
+
+function createEmptyDutyWeek(): Record<string, DutySlot> {
+  const week: Record<string, DutySlot> = {}
+  for (const day of weekdays) {
+    week[day] = { member: '', startTime: DUTY_DEFAULT_START, endTime: DUTY_DEFAULT_END }
+  }
+  return week
+}
+
+const dutyWeek = ref<Record<string, DutySlot>>(createEmptyDutyWeek())
+const dutyNotice = ref('')
+const dutyChecking = ref(false)
+const dutyChecked = ref(false)
+const dutyConflicts = ref<DutyConflictDto[]>([])
+const dutySuggestions = ref<DutySuggestionDto[]>([])
+
+/**
+ * 这份课表属于谁。
+ *
+ * 整页只有一份课表，它是「某一个人」的，不是全宿舍共享的。如果按成员逐个投影，
+ * 值日时段一旦和课表重叠就会全员同时冲突，后端 suggest_swaps 找不到「该时段无冲突」
+ * 的候选人，换班建议永远是空的。所以必须让用户声明归属人，只给归属人投影。
+ */
+const scheduleOwner = ref('')
+
+function loadScheduleOwner() {
+  try {
+    const raw = localStorage.getItem(SCHEDULE_OWNER_KEY)
+    if (raw) scheduleOwner.value = raw
+  } catch {
+    // 隐私模式读不到就保持为空，用户重新选一次即可。
+  }
+}
+
+function persistScheduleOwner() {
+  try {
+    localStorage.setItem(SCHEDULE_OWNER_KEY, scheduleOwner.value)
+  } catch {
+    // 写不进去不影响本次分析。
+  }
+}
+
+// 「参与成员」输入框是唯一的人员来源，值日面板只从它取名字。
+const memberNames = computed(() =>
+  members.value.split(/[,，、;；\s]+/).map((item) => item.trim()).filter(Boolean)
+)
+
+// 成员列表被改过之后，旧排班里的人名仍然要能在下拉里看到，否则会显示成空白。
+const dutyMemberOptions = computed(() => {
+  const names = [...memberNames.value]
+  for (const day of weekdays) {
+    const name = dutyWeek.value[day]?.member?.trim() ?? ''
+    if (name && !names.includes(name)) names.push(name)
+  }
+  return names
+})
+
+function loadDutyWeek() {
+  try {
+    const raw = localStorage.getItem(DUTY_STORAGE_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return
+    const record = parsed as Record<string, unknown>
+    const next = createEmptyDutyWeek()
+    for (const day of weekdays) {
+      const cell = record[day]
+      if (!cell || typeof cell !== 'object') continue
+      const slot = cell as Record<string, unknown>
+      next[day] = {
+        member: typeof slot.member === 'string' ? slot.member : '',
+        startTime: isValidHhmm(String(slot.startTime ?? '')) ? String(slot.startTime) : DUTY_DEFAULT_START,
+        endTime: isValidHhmm(String(slot.endTime ?? '')) ? String(slot.endTime) : DUTY_DEFAULT_END
+      }
+    }
+    dutyWeek.value = next
+  } catch {
+    // 隐私模式或数据损坏：退回默认空排班，不影响其它面板。
+  }
+}
+
+function persistDutyWeek() {
+  try {
+    localStorage.setItem(DUTY_STORAGE_KEY, JSON.stringify(dutyWeek.value))
+  } catch {
+    // 存不下就只在本次会话里生效。
+  }
+}
+
+watch(dutyWeek, persistDutyWeek, { deep: true })
+
+function clearDutyWeek() {
+  dutyWeek.value = createEmptyDutyWeek()
+  dutyConflicts.value = []
+  dutySuggestions.value = []
+  dutyChecked.value = false
+  dutyNotice.value = ''
+}
+
+// 本地时刻 → 带时区的 ISO8601（toISOString 会转成 UTC 并带 Z，后端能直接解析）。
+function isoAt(date: Date, hhmm: string): string {
+  const [hours, minutes] = hhmm.split(':').map(Number)
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    Number.isFinite(hours) ? hours : 0,
+    Number.isFinite(minutes) ? minutes : 0,
+    0,
+    0
+  ).toISOString()
+}
+
+// 本周一 00:00（本地时区）。值日表按「本周」算，跨周后自动滚到新的一周。
+function currentWeekMonday(): Date {
+  const today = new Date()
+  const weekday = today.getDay() // 0 = 周日
+  const offset = weekday === 0 ? 6 : weekday - 1
+  return new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset)
+}
+
+function dateOfWeekIndex(monday: Date, index: number): Date {
+  return new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + index)
+}
+
+const hasScheduleData = computed(() => events.value.length > 0 || customEvents.value.length > 0)
+
+const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
+function weekdayOfIso(iso: string): string {
+  try {
+    const value = new Date(iso)
+    if (Number.isNaN(value.getTime())) return ''
+    return WEEKDAY_NAMES[value.getDay()]
+  } catch {
+    return ''
+  }
+}
+
+function hhmmRange(startIso: string, endIso: string): string {
+  return `${isoToHhmm(startIso)}-${isoToHhmm(endIso)}`
+}
+
+function conflictText(item: DutyConflictDto): string {
+  const day = weekdayOfIso(item.duty.starts_at)
+  const course = item.conflicting_event.title
+  const range = hhmmRange(item.conflicting_event.starts_at, item.conflicting_event.ends_at)
+  return `${day} ${item.member_id} 值日与 ${course} ${range} 冲突`
+}
+
+function suggestionText(item: DutySuggestionDto): string {
+  return `建议 ${item.original_member_id} ↔ ${item.suggested_member_id}，理由：${item.rationale}`
+}
+
+/**
+ * 把课表/自定义行程重排到「本周」的日期上，只投影给课表的归属人。
+ * 导入的课表可能来自任意一周，只有重新落到本周日期，才能和本周的值日时段比对。
+ *
+ * 只给归属人投影是刻意的：如果把同一份课表塞给每个成员，值日时段一旦落在课表里，
+ * 全员同时冲突，后端就找不到可换班的人，黄色建议栏会永远空着。
+ * 其他成员按「暂无课表数据」处理，换班建议才有意义。
+ */
+function buildMemberEvents(owner: string, monday: Date): Record<string, ScheduleEventDto[]> {
+  const perDay: Record<string, ScheduleEventDto[]> = {}
+  for (const day of weekdays) perDay[day] = []
+
+  const push = (day: string, title: string, startTime: string, endTime: string, location?: string) => {
+    const index = weekdays.indexOf(day)
+    if (index < 0) return
+    if (!isValidHhmm(startTime) || !isValidHhmm(endTime)) return
+    const date = dateOfWeekIndex(monday, index)
+    const startsAt = isoAt(date, startTime)
+    const endsAt = isoAt(date, endTime)
+    // 后端要求 ends_at > starts_at，倒挂的条目直接丢掉，别让整次分析 422。
+    if (new Date(endsAt).getTime() <= new Date(startsAt).getTime()) return
+    const item: ScheduleEventDto = { title, starts_at: startsAt, ends_at: endsAt, source: 'text' }
+    if (location) item.location = location
+    perDay[day].push(item)
+  }
+
+  for (const event of events.value) {
+    const day = event.day_of_week && weekdays.includes(event.day_of_week)
+      ? event.day_of_week
+      : getDayOfWeek(event.starts_at)
+    push(day, event.title, isoToHhmm(event.starts_at), isoToHhmm(event.ends_at), event.location)
+  }
+  for (const event of customEvents.value) {
+    push(event.day, event.title, event.startTime, event.endTime, event.location || undefined)
+  }
+
+  const result: Record<string, ScheduleEventDto[]> = {}
+  if (owner) result[owner] = weekdays.flatMap((day) => perDay[day])
+  return result
+}
+
+async function checkDutyConflicts() {
+  if (dutyChecking.value) return
+  dutyChecking.value = true
+  dutyNotice.value = ''
+  dutyConflicts.value = []
+  dutySuggestions.value = []
+  dutyChecked.value = false
+  try {
+    const roster = memberNames.value
+    if (!roster.length) {
+      dutyNotice.value = '先在「参与成员」里填上宿舍成员，排班才有名字可选。'
+      return
+    }
+
+    const monday = currentWeekMonday()
+    const assignments: DutyAssignmentDto[] = []
+    const invalidDays: string[] = []
+    const unknownNames: string[] = []
+
+    weekdays.forEach((day, index) => {
+      const slot = dutyWeek.value[day]
+      const member = slot?.member?.trim() ?? ''
+      if (!member) return
+      if (!roster.includes(member)) {
+        unknownNames.push(member)
+        return
+      }
+      const startTime = slot.startTime ?? ''
+      const endTime = slot.endTime ?? ''
+      if (!isValidHhmm(startTime) || !isValidHhmm(endTime) || toMinutes(endTime) <= toMinutes(startTime)) {
+        invalidDays.push(day)
+        return
+      }
+      const date = dateOfWeekIndex(monday, index)
+      assignments.push({
+        member_id: member,
+        starts_at: isoAt(date, startTime),
+        ends_at: isoAt(date, endTime),
+        duty_name: `${day}值日`
+      })
+    })
+
+    if (!assignments.length) {
+      dutyNotice.value = '本周还没有安排值日：先在表格里给每天选人。'
+      return
+    }
+
+    // 没有课表、或还没声明课表归属人时，只发 assignments，member_events 传 {}。
+    const memberEvents = hasScheduleData.value && scheduleOwner.value
+      ? buildMemberEvents(scheduleOwner.value, monday)
+      : {}
+
+    const result = await command('dormitory', 'analyze_schedule_conflicts', '', {
+      assignments,
+      member_events: memberEvents
+    })
+
+    dutyConflicts.value = Array.isArray(result.data.conflicts)
+      ? (result.data.conflicts as DutyConflictDto[])
+      : []
+    dutySuggestions.value = Array.isArray(result.data.suggestions)
+      ? (result.data.suggestions as DutySuggestionDto[])
+      : []
+    dutyChecked.value = true
+
+    const notes: string[] = []
+    if (invalidDays.length) notes.push(`${Array.from(new Set(invalidDays)).join('、')} 的结束时间不晚于开始时间，已跳过`)
+    if (unknownNames.length) notes.push(`「${Array.from(new Set(unknownNames)).join('、')}」不在成员列表里，已跳过`)
+    if (!hasScheduleData.value) notes.push('导入课表后可以检测时间冲突')
+    else if (!scheduleOwner.value) notes.push('先在上面选一下「这份课表属于谁」，否则无法比对冲突')
+    dutyNotice.value = notes.join('；')
+  } catch (reason) {
+    dutyNotice.value = reason instanceof Error ? reason.message : '冲突检测失败'
+  } finally {
+    dutyChecking.value = false
+  }
+}
+
+/* ==================================================================
+ * 结算净额 + 月度消费
+ * ================================================================== */
+
+interface MemberBalance {
+  member: string
+  amount: number
+}
+
+const balances = ref<MemberBalance[]>([])
+
+// 后端 Decimal 在 JSON 里可能是字符串也可能是数字，统一收敛成两位小数。
+function normalizeBalances(raw: unknown): MemberBalance[] {
+  if (!raw || typeof raw !== 'object') return []
+  const list: MemberBalance[] = []
+  for (const [member, value] of Object.entries(raw as Record<string, unknown>)) {
+    const amount = typeof value === 'number' ? value : Number(String(value ?? ''))
+    if (!Number.isFinite(amount) || amount === 0) continue
+    list.push({ member, amount: Math.round(amount * 100) / 100 })
+  }
+  return list.sort((a, b) => b.amount - a.amount)
+}
+
+function balanceText(amount: number): string {
+  return amount >= 0 ? `应收 +${amount.toFixed(2)}` : `应付 ${amount.toFixed(2)}`
+}
+
+interface ExpenseLogEntry {
+  description: string
+  amount: number
+  payer_id: string
+  participant_ids: string[]
+  date: string
+}
+
+const expenseLog = ref<ExpenseLogEntry[]>([])
+
+function loadExpenseLog() {
+  try {
+    const raw = localStorage.getItem(EXPENSE_LOG_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return
+    const list: ExpenseLogEntry[] = []
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object') continue
+      const entry = item as Record<string, unknown>
+      const amountValue = Number(entry.amount)
+      if (!Number.isFinite(amountValue)) continue
+      list.push({
+        description: typeof entry.description === 'string' ? entry.description : '',
+        amount: amountValue,
+        payer_id: typeof entry.payer_id === 'string' ? entry.payer_id : '',
+        participant_ids: Array.isArray(entry.participant_ids) ? entry.participant_ids.map(String) : [],
+        date: typeof entry.date === 'string' ? entry.date : new Date().toISOString()
+      })
+    }
+    expenseLog.value = list
+  } catch {
+    // 读不出来就当没有历史，图表显示空态。
+  }
+}
+
+function appendExpenseLog(entry: ExpenseLogEntry) {
+  expenseLog.value = [...expenseLog.value, entry]
+  try {
+    localStorage.setItem(EXPENSE_LOG_KEY, JSON.stringify(expenseLog.value))
+  } catch {
+    // 配额满或隐私模式：只在本次会话里保留，图表仍然能更新。
+  }
+}
+
+// 粗分类：按描述里的关键词，先命中先归类，匹配不到归「其他」。
+const expenseCategories = [
+  {
+    key: '餐饮',
+    color: '#d8614d',
+    keywords: ['饭', '餐', '吃', '外卖', '食堂', '奶茶', '咖啡', '水果', '西瓜', '零食', '夜宵', '蛋糕', '烧烤', '火锅', '早餐', '午餐', '晚餐', '饮料', '可乐', '雪糕', '冰淇淋', '泡面', '补给']
+  },
+  {
+    key: '日用',
+    color: '#397f72',
+    keywords: ['纸', '洗', '拖', '扫', '清洁', '垃圾', '沐浴', '牙膏', '毛巾', '日用', '消毒', '洁厕', '衣架', '插座', '灯泡', '收纳']
+  },
+  {
+    key: '交通',
+    color: '#2f6f9f',
+    keywords: ['打车', '地铁', '公交', '出租', '高铁', '车票', '加油', '停车', '单车', '滴滴', '交通', '机票']
+  },
+  {
+    key: '水电',
+    color: '#d6a849',
+    keywords: ['水费', '电费', '网费', '宽带', '燃气', '空调', '充值', '缴费', '物业', '水卡', '电卡']
+  }
+]
+
+const OTHER_CATEGORY: { key: string; color: string } = { key: '其他', color: '#8b9a95' }
+
+function categorizeExpense(description: string): string {
+  const text = description ?? ''
+  for (const category of expenseCategories) {
+    if (category.keywords.some((keyword) => text.includes(keyword))) return category.key
+  }
+  return OTHER_CATEGORY.key
+}
+
+const monthlyExpenses = computed(() => {
+  const now = new Date()
+  return expenseLog.value.filter((entry) => {
+    const value = new Date(entry.date)
+    if (Number.isNaN(value.getTime())) return false
+    return value.getFullYear() === now.getFullYear() && value.getMonth() === now.getMonth()
+  })
+})
+
+const monthlyTotal = computed(() =>
+  Math.round(monthlyExpenses.value.reduce((sum, entry) => sum + entry.amount, 0) * 100) / 100
+)
+
+const monthlyBars = computed(() => {
+  const totals = new Map<string, number>()
+  for (const entry of monthlyExpenses.value) {
+    const key = categorizeExpense(entry.description)
+    totals.set(key, (totals.get(key) ?? 0) + entry.amount)
+  }
+  const total = monthlyTotal.value
+  const ordered: { key: string, color: string }[] = [
+    ...expenseCategories.map((item) => ({ key: item.key as string, color: item.color as string })),
+    OTHER_CATEGORY
+  ]
+  return ordered
+    .map((item) => {
+      const amount = Math.round((totals.get(item.key) ?? 0) * 100) / 100
+      return {
+        key: item.key,
+        color: item.color,
+        amount,
+        percent: total > 0 ? Math.round((amount / total) * 1000) / 10 : 0
+      }
+    })
+    .filter((item) => item.amount > 0)
+})
 
 function formatTime(dateStr: string) {
   try {
@@ -761,6 +1429,17 @@ function getDayOfWeek(dateStr: string) {
         <button class="ink-button primary" @click="addCustomEvent">确认添加</button>
       </div>
       
+      <!-- 时间重叠提醒：同一门课的连续小节不算冲突 -->
+      <div v-if="clashInfo.pairs.length" class="dormx-clash-banner">
+        <p class="dormx-clash-title">⚠ 检测到 {{ clashInfo.pairs.length }} 处时间重叠</p>
+        <ul class="dormx-clash-list">
+          <li v-for="pair in clashInfo.pairs.slice(0, 5)" :key="pair.key">
+            {{ pair.day }} · {{ pair.first }} {{ pair.firstRange }} × {{ pair.second }} {{ pair.secondRange }}
+          </li>
+        </ul>
+        <p v-if="clashInfo.pairs.length > 5" class="dormx-clash-more">另有 {{ clashInfo.pairs.length - 5 }} 处未展开。</p>
+      </div>
+
       <!-- 课表表格：按「大课」分行，每大课下挂两个小节的时刻 -->
       <div class="timetable-grid">
         <table>
@@ -786,7 +1465,7 @@ function getDayOfWeek(dateStr: string) {
                 <td
                   v-for="day in weekdays"
                   :key="day"
-                  :class="{ 'has-event': !block.firstCells[day].empty, 'is-custom': block.firstCells[day].customId !== null }"
+                  :class="{ 'has-event': !block.firstCells[day].empty, 'is-custom': block.firstCells[day].customId !== null, 'dormx-clash': block.firstCells[day].clash }"
                   :rowspan="block.firstCells[day].rowspan === 2 ? 2 : undefined"
                 >
                   <div
@@ -819,7 +1498,7 @@ function getDayOfWeek(dateStr: string) {
                   <!-- 上一行已经跨两行合并时，这一行不再输出该列的单元格 -->
                   <td
                     v-if="block.firstCells[day].rowspan !== 2"
-                    :class="{ 'has-event': !block.secondCells[day].empty, 'is-custom': block.secondCells[day].customId !== null }"
+                    :class="{ 'has-event': !block.secondCells[day].empty, 'is-custom': block.secondCells[day].customId !== null, 'dormx-clash': block.secondCells[day].clash }"
                   >
                     <div
                       v-if="!block.secondCells[day].empty"
@@ -850,9 +1529,86 @@ function getDayOfWeek(dateStr: string) {
       <p class="timetable-legend">每小课 45 分钟；同一大课内的两小节连上，中间休息 5 分钟，大课之间休息 15 分钟。</p>
     </article>
 
+    <!-- 值日排班 + 冲突检测 -->
+    <article class="timetable-panel">
+      <p class="micro">02 / 值日排班</p>
+      <h2>一周值日先排好，再让课表说话。</h2>
+      <p class="panel-sub">默认时段 20:00–21:00；排班存在本机，检查冲突时会把值日与当天课表比对。</p>
+
+      <label class="dormx-owner-row">
+        <span class="dormx-owner-label">这份课表属于</span>
+        <select v-model="scheduleOwner" @change="persistScheduleOwner">
+          <option value="">未指定</option>
+          <option v-for="name in dutyMemberOptions" :key="name" :value="name">{{ name }}</option>
+        </select>
+        <small class="dormx-owner-hint">
+          整页只有一份课表，声明归属人后只比对这一个人的忙时；其他成员按「暂无课表」处理，
+          换班建议才能给出候选人。
+        </small>
+      </label>
+
+      <div class="dormx-duty-table">
+        <table>
+          <thead>
+            <tr>
+              <th>星期</th>
+              <th>负责人</th>
+              <th>开始</th>
+              <th>结束</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="day in weekdays" :key="day">
+              <th scope="row">{{ day }}</th>
+              <td>
+                <select v-model="dutyWeek[day].member" :aria-label="`${day}值日负责人`">
+                  <option value="">未安排</option>
+                  <option v-for="name in dutyMemberOptions" :key="name" :value="name">{{ name }}</option>
+                </select>
+              </td>
+              <td><input v-model="dutyWeek[day].startTime" type="time" :aria-label="`${day}值日开始时间`"></td>
+              <td><input v-model="dutyWeek[day].endTime" type="time" :aria-label="`${day}值日结束时间`"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="dormx-duty-actions">
+        <button class="ink-button primary" :disabled="dutyChecking" @click="checkDutyConflicts">
+          {{ dutyChecking ? '检查中...' : '检查冲突' }}
+        </button>
+        <button class="soft-button" @click="clearDutyWeek">清空排班</button>
+        <span class="dormx-duty-hint">
+          {{ hasScheduleData ? '按本周一至周日，把值日时段和课表逐天比对。' : '导入课表后可以检测时间冲突' }}
+        </span>
+      </div>
+
+      <p v-if="dutyNotice" class="dormx-duty-notice">{{ dutyNotice }}</p>
+
+      <div v-if="dutyChecked" class="dormx-duty-result">
+        <section class="dormx-column dormx-column-danger">
+          <h3>冲突<span class="dormx-count">{{ dutyConflicts.length }}</span></h3>
+          <p v-if="!dutyConflicts.length" class="dormx-ok">本周排班无冲突</p>
+          <ul v-else class="dormx-conflict-list">
+            <li v-for="(item, index) in dutyConflicts" :key="`conflict-${index}`">{{ conflictText(item) }}</li>
+          </ul>
+        </section>
+        <section class="dormx-column dormx-column-warn">
+          <h3>换班建议<span class="dormx-count">{{ dutySuggestions.length }}</span></h3>
+          <p v-if="!dutySuggestions.length" class="dormx-muted">暂无换班建议。</p>
+          <ul v-else class="dormx-suggest-list">
+            <li v-for="(item, index) in dutySuggestions" :key="`suggest-${index}`">
+              <span class="dormx-suggest-day">{{ weekdayOfIso(item.duty.starts_at) }}</span>
+              {{ suggestionText(item) }}
+            </li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
     <!-- 公用记账 + 美好记录 -->
     <article class="split-panel">
-      <p class="micro">02 / 公用记账 · 美好记录</p>
+      <p class="micro">03 / 公用记账 · 美好记录</p>
       <h2>算清每一笔，也记下当时的美好。</h2>
       <p class="panel-sub">记账只是顺手的事；真正想留下的是「那天我们为什么花这笔钱」。</p>
 
@@ -883,11 +1639,29 @@ function getDayOfWeek(dateStr: string) {
         <button class="soft-button" @click="saveMemoryOnly">只记美好，不算账</button>
       </div>
 
-      <ul v-if="transfers.length" class="transfer-list">
-        <li v-for="transfer in transfers" :key="`${transfer.from_member_id}${transfer.to_member_id}`">
-          {{ transfer.from_member_id }} <span>→</span> {{ transfer.to_member_id }} <strong>¥{{ transfer.amount }}</strong>
-        </li>
-      </ul>
+      <!-- 本宿舍净额：正数应收、负数应付，按金额从高到低排 -->
+      <section v-if="balances.length" class="dormx-balance">
+        <h3>本宿舍净额</h3>
+        <ul class="dormx-balance-list">
+          <li
+            v-for="item in balances"
+            :key="item.member"
+            :class="item.amount >= 0 ? 'is-credit' : 'is-debt'"
+          >
+            <span class="dormx-balance-name">{{ item.member }}</span>
+            <span class="dormx-balance-amount">{{ balanceText(item.amount) }}</span>
+          </li>
+        </ul>
+      </section>
+
+      <template v-if="transfers.length">
+        <h3 class="dormx-transfer-title">最少转账方案：{{ transfers.length }} 笔</h3>
+        <ul class="transfer-list">
+          <li v-for="transfer in transfers" :key="`${transfer.from_member_id}${transfer.to_member_id}`">
+            {{ transfer.from_member_id }} <span>→</span> {{ transfer.to_member_id }} <strong>¥{{ transfer.amount }}</strong>
+          </li>
+        </ul>
+      </template>
       <p v-else class="empty-state">填写金额和成员后计算。</p>
       <p v-if="memoryNotice" class="memory-notice">{{ memoryNotice }}</p>
 
@@ -895,8 +1669,13 @@ function getDayOfWeek(dateStr: string) {
       <section class="memory-timeline">
         <header class="memory-timeline-head">
           <h3>美好记录</h3>
-          <span v-if="memoryRecords.length">共 {{ memoryRecords.length }} 条</span>
+          <div class="memory-head-right">
+            <span v-if="memoryRecords.length">共 {{ memoryRecords.length }} 条</span>
+            <button type="button" class="memory-tool" :disabled="!memoryRecords.length" @click="exportMemoryRecords">导出备份</button>
+            <button type="button" class="memory-tool" @click="chooseMemoryFile">导入恢复</button>
+          </div>
         </header>
+        <input ref="memoryFileInput" class="memory-import-input" type="file" accept="application/json,.json" @change="importMemoryRecords">
         <p v-if="!memoryRecords.length" class="empty-state">还没有记录。算完一笔账、或者点「只记美好」，它就会自动存到这里。</p>
         <article v-for="record in memoryRecords" :key="record.id" class="memory-record">
           <header>
@@ -917,6 +1696,30 @@ function getDayOfWeek(dateStr: string) {
       </section>
     </article>
 
+    <!-- 本月消费：纯 CSS 条形图，不引图表库 -->
+    <article class="timetable-panel">
+      <p class="micro">04 / 本月消费</p>
+      <h2>这个月，钱花在哪一类。</h2>
+      <p class="panel-sub">按记账时的描述粗分五类，只统计本月；每算一笔 AA 就自动多一条流水。</p>
+
+      <div v-if="monthlyExpenses.length" class="dormx-month">
+        <div class="dormx-month-head">
+          <strong>本月总支出 ¥{{ monthlyTotal.toFixed(2) }}</strong>
+          <span>{{ monthlyExpenses.length }} 笔</span>
+        </div>
+        <ul class="dormx-bars">
+          <li v-for="bar in monthlyBars" :key="bar.key" class="dormx-bar-row">
+            <span class="dormx-bar-label">{{ bar.key }}</span>
+            <span class="dormx-bar-track">
+              <span class="dormx-bar-fill" :style="{ width: bar.percent + '%', backgroundColor: bar.color }"></span>
+            </span>
+            <span class="dormx-bar-value">¥{{ bar.amount.toFixed(2) }} · {{ bar.percent }}%</span>
+          </li>
+        </ul>
+      </div>
+      <p v-else class="empty-state">记第一笔账后这里会出现分类统计</p>
+    </article>
+
     <!-- 照片大图 -->
     <div v-if="previewPhoto" class="photo-lightbox" @click="previewPhoto = ''">
       <img :src="previewPhoto" alt="照片预览">
@@ -924,7 +1727,7 @@ function getDayOfWeek(dateStr: string) {
 
     <!-- 整改建议 -->
     <article class="suggestion-panel">
-      <p class="micro">03 / 整改建议</p>
+      <p class="micro">05 / 整改建议</p>
       <h2>把检查记录改写为可执行建议。</h2>
       <label>观察到的情况<input v-model="observation" /></label>
       <button class="soft-button" @click="improve">生成建议</button>
@@ -932,3 +1735,402 @@ function getDayOfWeek(dateStr: string) {
     </article>
   </section>
 </template>
+
+<style scoped>
+/* ==================== 课表时间重叠 ==================== */
+.dormx-clash-banner {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid #f0c4bd;
+  border-left: 4px solid #d8614d;
+  border-radius: 10px;
+  background: #fdf2ef;
+}
+
+.dormx-clash-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #9e3030;
+}
+
+.dormx-clash-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #8a3b2c;
+}
+
+.dormx-clash-more {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #a4715f;
+}
+
+/* 红边框用 inset 阴影，避免和 .timetable-grid td 的 border 打架 */
+.dormx-clash {
+  position: relative;
+  box-shadow: inset 0 0 0 2px #d8614d;
+}
+
+.dormx-clash::after {
+  content: '冲突';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 3;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: #d8614d;
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.5;
+  letter-spacing: .04em;
+  pointer-events: none;
+}
+
+/* ==================== 值日排班 ==================== */
+.dormx-owner-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px 13px;
+  border: 1px dashed rgba(47, 74, 69, 0.24);
+  border-radius: 11px;
+  background: rgba(255, 253, 248, 0.7);
+}
+
+.dormx-owner-label {
+  flex: none;
+  color: #3f5350;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dormx-owner-row select {
+  min-width: 128px;
+  padding: 6px 9px;
+  border: 1px solid rgba(47, 74, 69, 0.2);
+  border-radius: 8px;
+  background: #fff;
+  color: #22302d;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.dormx-owner-hint {
+  flex: 1 1 260px;
+  color: #7b8b86;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.dormx-duty-table {
+  margin-top: 18px;
+  overflow-x: auto;
+}
+
+.dormx-duty-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.dormx-duty-table th,
+.dormx-duty-table td {
+  border: 1px solid #e8e4dc;
+  padding: 8px;
+  text-align: center;
+}
+
+.dormx-duty-table thead th {
+  background: #173f43;
+  color: #fff;
+  font-weight: 600;
+  padding: 10px 8px;
+}
+
+.dormx-duty-table tbody th {
+  width: 88px;
+  background: #f5f4eb;
+  color: #173f43;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.dormx-duty-table select,
+.dormx-duty-table input {
+  width: 100%;
+  max-width: 160px;
+  padding: 7px 9px;
+  border: 1px solid #d8ded4;
+  border-radius: 8px;
+  background: #fffef8;
+  color: #172b2a;
+  font-size: 13px;
+}
+
+.dormx-duty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.dormx-duty-hint {
+  font-size: 12px;
+  color: #667572;
+}
+
+.dormx-duty-notice {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border: 1px solid #e8e4dc;
+  border-radius: 10px;
+  background: #f5f4eb;
+  font-size: 12.5px;
+  color: #4b5b57;
+}
+
+.dormx-duty-result {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.dormx-column {
+  padding: 14px 16px;
+  border: 1px solid #e8e4dc;
+  border-radius: 12px;
+  background: #fffef8;
+}
+
+.dormx-column h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  letter-spacing: .02em;
+}
+
+.dormx-column-danger {
+  border-color: #f0c4bd;
+  background: #fdf2ef;
+}
+
+.dormx-column-danger h3 {
+  color: #9e3030;
+}
+
+.dormx-column-warn {
+  border-color: #eddfb6;
+  background: #fdf7e6;
+}
+
+.dormx-column-warn h3 {
+  color: #8a6a12;
+}
+
+.dormx-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(23, 43, 42, .08);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dormx-ok {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #bcdcc7;
+  border-radius: 10px;
+  background: #e4f1e8;
+  color: #2e7d54;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dormx-muted {
+  margin: 0;
+  font-size: 12.5px;
+  color: #667572;
+}
+
+.dormx-conflict-list,
+.dormx-suggest-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+
+.dormx-conflict-list {
+  color: #5a3a33;
+}
+
+.dormx-suggest-list {
+  color: #6b5518;
+}
+
+.dormx-suggest-day {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: rgba(214, 168, 73, .22);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+/* ==================== 本宿舍净额 ==================== */
+.dormx-balance {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid #e8e4dc;
+  border-radius: 12px;
+  background: #fbfaf3;
+}
+
+.dormx-balance h3 {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  color: #173f43;
+}
+
+.dormx-balance-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dormx-balance-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border: 1px solid #ece9df;
+  border-radius: 8px;
+  background: #fffef8;
+  font-size: 13px;
+}
+
+.dormx-balance-name {
+  color: #172b2a;
+  font-weight: 600;
+}
+
+.dormx-balance-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.dormx-balance-list li.is-credit .dormx-balance-amount {
+  color: #2e7d54;
+}
+
+.dormx-balance-list li.is-debt .dormx-balance-amount {
+  color: #b63d3d;
+}
+
+.dormx-transfer-title {
+  margin: 18px 0 8px;
+  font-size: 13.5px;
+  color: #173f43;
+}
+
+/* ==================== 本月消费 ==================== */
+.dormx-month {
+  margin-top: 16px;
+}
+
+.dormx-month-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid #e8e4dc;
+  border-radius: 10px;
+  background: #f5f4eb;
+  font-size: 13px;
+  color: #172b2a;
+}
+
+.dormx-month-head strong {
+  font-size: 15px;
+}
+
+.dormx-month-head span {
+  font-size: 12.5px;
+  color: #667572;
+}
+
+.dormx-bars {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dormx-bar-row {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.dormx-bar-label {
+  color: #172b2a;
+  font-weight: 700;
+}
+
+.dormx-bar-track {
+  display: block;
+  height: 12px;
+  border-radius: 999px;
+  background: #eeece2;
+  overflow: hidden;
+}
+
+.dormx-bar-fill {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: 999px;
+  transition: width .28s ease;
+}
+
+.dormx-bar-value {
+  color: #4b5b57;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .dormx-bar-row {
+    grid-template-columns: 44px 1fr;
+  }
+
+  .dormx-bar-value {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+</style>

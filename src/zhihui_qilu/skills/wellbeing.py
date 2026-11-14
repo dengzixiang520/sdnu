@@ -24,6 +24,11 @@ class WellbeingSkill(BaseSkill):
         if action == "greeting":
             greeting = await self._service.create_greeting(request.context.user_id, request.context.session_id)
             return AgentResponse(success=True, message=greeting, data={"greeting": greeting})
+
+        # 进暖心空间时的主动开场：不走大模型，进页面立刻有话
+        if action == "guide_opening":
+            opening = await self._service.compose_opening(request.context.user_id)
+            return AgentResponse(success=True, message=str(opening["opening"]), data=opening)
         
         if action == "control":
             command = self._service.parse_control_command(request.text)
@@ -33,6 +38,29 @@ class WellbeingSkill(BaseSkill):
             result = await self._service.record_check_in(request.context.user_id, request.context.session_id, MoodCheckIn.model_validate(request.payload.get("check_in", {})))
             return AgentResponse(success=True, message=result.support_message, data=result.model_dump(mode="json"))
         
+        # 情绪趋势 / 心情日历：只回给打卡本人，窗口受 7 天保留期限制
+        if action == "mood_history":
+            try:
+                days = int(request.payload.get("days", 7))
+            except (TypeError, ValueError):
+                days = 7
+            items = await self._service.list_check_ins(request.context.user_id, max(1, min(days, 7)))
+            return AgentResponse(success=True, message=f"已获取最近 {len(items)} 次心情记录", data={"items": items})
+
+        # 学生主动约谈心：橙/红等级时前端会引导到这里，记录对辅导员可见
+        if action == "request_booking":
+            slot = str(request.payload.get("slot") or "").strip()
+            if not slot:
+                return AgentResponse(success=False, message="先选一个可约时段")
+            booking = await self._service.request_booking(
+                request.context.user_id,
+                request.context.session_id,
+                slot,
+                str(request.payload.get("note") or ""),
+                str(request.payload.get("alert_level") or ""),
+            )
+            return AgentResponse(success=True, message=f"已提交预约申请：{slot}，辅导员会在谈心台账里看到", data={"booking": booking})
+
         if action == "wall_messages":
             messages = await self._service.list_wall_messages()
             return AgentResponse(success=True, message="已获取寄语墙", data={"messages": [message.model_dump(mode="json") for message in messages]})
@@ -74,6 +102,12 @@ class WellbeingSkill(BaseSkill):
                 return AgentResponse(success=False, message="仅辅导员或管理员可查看预警")
             alerts = await self._service.list_counselor_alerts()
             return AgentResponse(success=True, message="已获取预警列表", data={"alerts": alerts})
+
+        if action == "list_bookings":
+            if request.context.role not in {UserRole.COUNSELOR, UserRole.ADMINISTRATOR}:
+                return AgentResponse(success=False, message="仅辅导员或管理员可查看谈心预约")
+            bookings = await self._service.list_bookings()
+            return AgentResponse(success=True, message=f"待处理预约 {len(bookings)} 条", data={"bookings": bookings})
         
         if action == "create_talk_ledger":
             if request.context.role not in {UserRole.COUNSELOR, UserRole.ADMINISTRATOR}:
@@ -83,6 +117,6 @@ class WellbeingSkill(BaseSkill):
             return AgentResponse(success=True, message="谈心记录已创建", data=entry.model_dump(mode="json"))
         
         return AgentResponse(success=False, message="不支持的心育操作", data={
-            "student_actions": ["greeting", "control", "mood_checkin", "wall_messages", "happy_shares", "publish_happy_share", "cheer_happy_share"],
-            "staff_actions": ["publish_wall_message", "list_alerts", "create_talk_ledger"]
+            "student_actions": ["greeting", "guide_opening", "control", "mood_checkin", "mood_history", "request_booking", "wall_messages", "happy_shares", "publish_happy_share", "cheer_happy_share"],
+            "staff_actions": ["publish_wall_message", "list_alerts", "list_bookings", "create_talk_ledger"]
         })

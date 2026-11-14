@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
+from uuid import uuid4
 
 from pydantic import ValidationError
 
@@ -90,6 +91,56 @@ class WellbeingService:
                 return GuideControlCommand(command="play_audio", track=track)
         return None
 
+    async def compose_opening(self, user_id: str) -> dict[str, object]:
+        """进暖心空间时引导员主动说的第一句。
+
+        不走大模型：进页面就该立刻有话，等 2 秒的空白比说错话更伤。
+        但语气必须跟着最近的状态走，所以先把打卡读出来再选分支。
+        """
+        records = await self._memory.query(user_id=user_id, tier=MemoryTier.SHORT_TERM, category="wellbeing.mood_checkin")
+        checkins: list[tuple[str, str, str]] = []
+        for record in records:
+            checked_at = record.value.get("checked_at")
+            if not isinstance(checked_at, str):
+                continue
+            checkins.append((checked_at, str(record.value.get("weather") or ""), str(record.value.get("reflection") or "")))
+        checkins.sort(key=lambda item: item[0])
+
+        today = utc_now().astimezone(timezone.utc).date().isoformat()
+        checked_today = bool(checkins) and checkins[-1][0][:10] == today
+        negative = [item for item in checkins if item[1] in self._NEGATIVE_WEATHER]
+        level = "green"
+        if len(negative) >= 5:
+            level = "orange"
+        elif len(negative) >= 3:
+            level = "yellow"
+
+        if not checkins:
+            opening = "我是小齐。第一次来不用急着说什么，坐着发会儿呆也行。今天过得怎么样？"
+            chips = ["今天还行", "有点累", "先不说话，陪我待一会儿"]
+            mood = ""
+        elif negative and not checked_today:
+            last = negative[-1]
+            quoted = last[2].strip()
+            tail = f"上次你写的是「{quoted[:24]}」。不用急着讲原因，想说的时候我听着。" if quoted else "不用急着讲原因，想说的时候我听着。"
+            opening = f"我在。最近这阵子看着一直绷着，{tail}"
+            chips = ["我想说说", "不知道从哪说起", "先不说这个"]
+            mood = last[1]
+        elif checked_today and checkins[-1][1] == "sunny":
+            opening = "今天记的是晴，看到这个我挺高兴的。要不要说说，是什么让你今天松了一点？"
+            chips = ["就是天气好", "有件小事挺开心", "也说不上来"]
+            mood = "sunny"
+        elif checked_today:
+            opening = "今天已经记过了，我看到了。现在这会儿和刚才比，是差不多还是不太一样？"
+            chips = ["差不多", "好一点了", "更差了"]
+            mood = checkins[-1][1]
+        else:
+            opening = "今天还没记。不过不急着打卡——现在这会儿你更想被听听，还是一起想想办法？"
+            chips = ["想被听听", "一起想办法", "随便聊聊"]
+            mood = checkins[-1][1] if checkins else ""
+
+        return {"opening": opening, "chips": chips, "mood": mood, "alert_level": level, "checked_today": checked_today}
+
     async def record_check_in(self, user_id: str, session_id: str, check_in: MoodCheckIn) -> MoodCheckInResult:
         """Persist a private check-in, calculate the transparent support level, and alert safely."""
         prior = await self._memory.query(user_id=user_id, tier=MemoryTier.SHORT_TERM, category="wellbeing.mood_checkin")
@@ -99,6 +150,42 @@ class WellbeingService:
         if level in {AlertLevel.ORANGE, AlertLevel.RED}:
             await self._create_staff_alert(user_id, level, reasons)
         return self._student_result(level)
+
+    async def list_check_ins(self, user_id: str, days: int = 7) -> list[dict[str, object]]:
+        """返回该用户最近 N 天的心情打卡，按时间正序。
+
+        ``days`` 会被夹在 1..7：短期记忆保留期只有 7 天，超过窗口的记录已被
+        ``prune_expired`` 清掉，返回更长的区间只会让前端画出一段假空白。
+        只有记录所有者本人能走到这里（默认 OWNER 作用域），所以 reflection
+        原文可以回传给本人；辅导员侧永远走独立的预警记录。
+        """
+        try:
+            window = int(days)
+        except (TypeError, ValueError):
+            window = 7
+        window = max(1, min(window, 7))
+        cutoff = utc_now() - timedelta(days=window)
+        records = await self._memory.query(user_id=user_id, tier=MemoryTier.SHORT_TERM, category="wellbeing.mood_checkin")
+        items: list[dict[str, object]] = []
+        for record in records:
+            try:
+                checked_at = self._record_time(record)
+            except (TypeError, ValueError):
+                checked_at = record.created_at
+            if checked_at.tzinfo is None:
+                checked_at = checked_at.replace(tzinfo=timezone.utc)
+            if checked_at < cutoff:
+                continue
+            weather = record.value.get("weather")
+            items.append(
+                {
+                    "weather": weather.value if isinstance(weather, MoodWeather) else str(weather or ""),
+                    "checked_at": checked_at.isoformat(),
+                    "reflection": str(record.value.get("reflection") or ""),
+                }
+            )
+        items.sort(key=lambda item: str(item["checked_at"]))
+        return items
 
     async def publish_wall_message(self, message: WallMessage) -> WallMessage:
         """Publish a vetted counselor message; its author identity is never exposed to students."""
@@ -137,6 +224,51 @@ class WellbeingService:
         """Create a counselor-reviewable ledger from confirmed facts, never raw audio/transcripts."""
         topic_summary = "；".join(item.strip() for item in source.topics if item.strip())
         return TalkLedgerEntry(student_id=source.student_id, counselor_name=source.counselor_name, meeting_at=source.meeting_at, location=source.location, topic_summary=topic_summary, agreed_actions=source.agreed_actions, follow_up_at=source.follow_up_at)
+
+    async def request_booking(self, user_id: str, session_id: str, slot: str, note: str, alert_level: str) -> dict[str, object]:
+        """学生主动约一次谈心：落成辅导员可见的记录，而不是只在前端留一行字。
+
+        与预警记录分开存：预警是系统判定，预约是本人主动求助，两者的处置流程不同。
+        note 只给辅导员看，不会回传给其他学生。
+        """
+        booking: dict[str, object] = {
+            "booking_id": f"booking-{uuid4().hex[:12]}",
+            "user_id": user_id,
+            "slot": slot.strip()[:80],
+            "note": note.strip()[:500],
+            "alert_level": alert_level or "",
+            "requested_at": utc_now().isoformat(),
+            "status": "pending",
+        }
+        await self._memory.put(
+            MemoryRecord(
+                user_id=user_id,
+                session_id=session_id,
+                tier=MemoryTier.SHORT_TERM,
+                category="wellbeing.booking_request",
+                value=booking,
+                source_agent="wellbeing-service",
+                access_scope=AccessScope.AUTHORIZED_STAFF,
+                sensitivity=SensitivityLevel.RESTRICTED,
+                expires_at=utc_now() + timedelta(seconds=self._settings.short_term_memory_ttl_seconds),
+            )
+        )
+        return booking
+
+    async def list_bookings(self) -> list[dict[str, object]]:
+        """辅导员侧：待处理的谈心预约，按提交时间倒序。"""
+        records = await self._memory.query(
+            user_id=None,
+            tier=MemoryTier.SHORT_TERM,
+            category="wellbeing.booking_request",
+            permitted_scopes={AccessScope.AUTHORIZED_STAFF, AccessScope.SYSTEM_ONLY},
+        )
+        bookings: list[dict[str, object]] = []
+        for record in records:
+            payload = dict(record.value)
+            payload.setdefault("requested_at", record.created_at.isoformat())
+            bookings.append(payload)
+        return sorted(bookings, key=lambda item: str(item["requested_at"]), reverse=True)
 
     async def publish_happy_share(self, user_id: str, session_id: str, author_name: str, draft: HappyShareDraft) -> HappyShare:
         """Screen a positive moment deterministically, then publish it to everyone.
@@ -259,7 +391,8 @@ class WellbeingService:
             AlertLevel.ORANGE: "你最近承受了不少。建议预约一次辅导员谈心或校内心理支持服务。",
             AlertLevel.RED: "你的安全很重要。请尽快联系身边可信任的人、辅导员，或拨打 24 小时心理援助热线 12356；我们也会发出人工关怀提醒。",
         }
-        return MoodCheckInResult(alert_level=level, support_message=messages[level], booking_suggested=level in {AlertLevel.ORANGE, AlertLevel.RED}, human_follow_up_requested=level == AlertLevel.RED)
+        # 黄等级对应「要不要找时间聊聊」，所以预约入口从黄就开始给，不必等到橙
+        return MoodCheckInResult(alert_level=level, support_message=messages[level], booking_suggested=level in {AlertLevel.YELLOW, AlertLevel.ORANGE, AlertLevel.RED}, human_follow_up_requested=level == AlertLevel.RED)
 
     @staticmethod
     def _find_value(records: list[MemoryRecord], key: str) -> object | None:

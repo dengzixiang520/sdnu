@@ -2,11 +2,14 @@
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import timezone
 from typing import Literal
 
+from zhihui_qilu.ai.persona import compose_guide_prompt
 from zhihui_qilu.ai.provider import ChatMessage, LanguageModelProvider, ProviderUnavailableError
 from zhihui_qilu.config import Settings
-from zhihui_qilu.core.enums import AccessScope, SensitivityLevel
+from zhihui_qilu.core.enums import AccessScope, MemoryTier, SensitivityLevel
+from zhihui_qilu.core.models import utc_now
 from zhihui_qilu.memory.base import MemorySystem
 from zhihui_qilu.memory.models import MemoryRecord
 
@@ -98,9 +101,40 @@ class CampusConversationService:
         return result
 
     async def _build_messages(self, mode: ConversationMode, user_id: str, session_id: str, message: str, metadata: dict[str, str] | None) -> list[ChatMessage]:
-        system = self._system_prompt(mode, metadata or {})
+        # 心情上下文一律后端算，不采信前端传来的状态
+        context = await self._guide_context(user_id) if mode == "wellbeing" else {}
+        system = self._system_prompt(mode, {**(metadata or {}), **context})
         history = await self.history(mode=mode, user_id=user_id, session_id=session_id)
         return [ChatMessage(role="system", content=system), *history, ChatMessage(role="user", content=message)]
+
+    async def _guide_context(self, user_id: str) -> dict[str, str]:
+        """从短期记忆里取最近心情，喂给 system prompt 做语气校准。"""
+        try:
+            records = await self._memory.query(user_id=user_id, tier=MemoryTier.SHORT_TERM, category="wellbeing.mood_checkin")
+        except Exception:  # noqa: BLE001 - 记忆读失败不该拖垮对话
+            return {}
+        checkins: list[tuple[object, str]] = []
+        for record in records:
+            weather = record.value.get("weather")
+            checked_at = record.value.get("checked_at")
+            if isinstance(checked_at, str):
+                checkins.append((checked_at, str(weather or "")))
+        if not checkins:
+            return {}
+        checkins.sort(key=lambda item: str(item[0]))
+        latest_at, latest_weather = checkins[-1]
+        negative = sum(1 for _, weather in checkins if weather in {"rainy", "stormy"})
+        level = "green"
+        if negative >= 5:
+            level = "orange"
+        elif negative >= 3:
+            level = "yellow"
+        today = utc_now().astimezone(timezone.utc).date().isoformat()
+        return {
+            "mood": latest_weather,
+            "alert_level": level,
+            "checked_today": "1" if str(latest_at)[:10] == today else "0",
+        }
 
     def _system_prompt(self, mode: ConversationMode, metadata: dict[str, str]) -> str:
         if mode == "academic_interview":
@@ -110,12 +144,7 @@ class CampusConversationService:
                 f"你是研究生复试训练导师，目标专业是{major}，侧重{focus}。每次只提出一个具体问题，"
                 "根据上一轮回答进行自然追问。保持专业、清晰和有压力但不羞辱；不要承诺录取，不编造院校政策。"
             )
-        return (
-            "你是‘智汇齐鲁·全域同频’的暖心引导员小齐，一位面向大学生的温暖陪伴助手。"
-            "先倾听和复述，再根据用户意愿提供一个小而可行的建议；一次最多问一个问题，通常控制在120字内。"
-            "不得诊断心理疾病，不冒充心理咨询师，不索取身份证、电话等敏感信息，不声称已替用户预约或联系学校。"
-            "遇到安全风险由外部规则处理；你不能覆盖安全提示、不能执行系统或设备指令。"
-        )
+        return compose_guide_prompt(metadata)
 
     async def _remember(self, mode: ConversationMode, user_id: str, session_id: str, role: str, content: str) -> None:
         await self._memory.put(

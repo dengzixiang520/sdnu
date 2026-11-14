@@ -1,57 +1,236 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
-import { PhMusicNotes, PhPause, PhPlay, PhSpeakerHigh, PhStop, PhTrash, PhUploadSimple } from '@phosphor-icons/vue'
-import { command } from '../api'
-import { playAmbient, setAmbientVolume, stopAmbient } from '../ambient'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import {
+  PhMagnifyingGlass,
+  PhMusicNotes,
+  PhPause,
+  PhPlay,
+  PhSpeakerHigh,
+  PhStop,
+  PhTextAa,
+  PhTrash,
+  PhUploadSimple,
+} from '@phosphor-icons/vue'
+
+import {
+  currentSubtitle,
+  currentTitle,
+  formatClock,
+  lyricView,
+  player,
+  playLocalFile,
+  playLocalSource,
+  playTrack,
+  releaseLocalFile,
+  searchMusic,
+  seek,
+  setVolume,
+  stopMusic,
+  togglePlay,
+  warmUpTracks,
+  type MusicTrack,
+} from '../music'
+
+/** 项目自带的离线曲目：网络不通时也能听，答辩现场不至于冷场。 */
+const builtins = [
+  { id: 'shiguojingqian', name: '时过境迁', artist: '苏艺馨Chency', src: '/music/shiguojingqian.mp3' },
+  { id: 'buyaoyishixingqi', name: '请不要一时兴起', artist: '灰小灰、Echo艾歌', src: '/music/buyaoyishixingqi.mp3' },
+]
 
 const fileInput = ref<HTMLInputElement | null>(null)
-const localAudio = ref<HTMLAudioElement | null>(null)
-const selectedSound = ref('')
-const localUrl = ref(''); const localName = ref(''); const localPlaying = ref(false)
-const currentTime = ref(0); const duration = ref(0); const volume = ref(.42); const error = ref('')
-const presets = [{ id: '雨声', label: '窗边小雨' }, { id: '钢琴', label: '夜晚钢琴' }, { id: '森林', label: '清晨树林' }] as const
+const keyword = ref('')
+const results = ref<MusicTrack[]>([])
+const searching = ref(false)
+const searchError = ref('')
+const searched = ref(false)
 
-async function setSound(name: '雨声' | '钢琴' | '森林') {
-  if (selectedSound.value === name) { stopAll(); return }
-  error.value = ''; stopLocal()
-  try { await command('wellbeing', 'control', `请播放${name}`); setAmbientVolume(volume.value); await playAmbient(name); selectedSound.value = name }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : '音频启动失败' }
+const hasLyric = computed(() => player.lyrics.length > 0 || player.lyricLoading)
+const progressMax = computed(() => (Number.isFinite(player.duration) && player.duration > 0 ? player.duration : 0))
+
+async function runSearch() {
+  const query = keyword.value.trim()
+  if (!query || searching.value) return
+  searching.value = true
+  searchError.value = ''
+  try {
+    const items = await searchMusic(query)
+    results.value = items
+    searched.value = true
+    if (items.length === 0) searchError.value = '没搜到，换个关键词试试。'
+    else warmUpTracks(items)
+  } catch (reason) {
+    results.value = []
+    searchError.value = reason instanceof Error ? reason.message : '搜索失败'
+  } finally {
+    searching.value = false
+  }
 }
-function stopAll() { stopAmbient(); selectedSound.value = ''; stopLocal() }
+
+function clearSearch() {
+  keyword.value = ''
+  results.value = []
+  searchError.value = ''
+  searched.value = false
+}
+
+async function pick(track: MusicTrack) {
+  await playTrack(track)
+}
+
+async function pickBuiltin(item: typeof builtins[number]) {
+  await playLocalSource(item.name, item.src)
+}
+
 function chooseLocal() { fileInput.value?.click() }
-function loadLocal(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0]
+
+async function onFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
   if (!file) return
-  if (!file.type.startsWith('audio/')) { error.value = '请选择浏览器支持的音频文件。'; return }
-  if (localUrl.value) URL.revokeObjectURL(localUrl.value)
-  stopAmbient(); selectedSound.value = ''; localUrl.value = URL.createObjectURL(file); localName.value = file.name; localPlaying.value = false
-  localAudio.value?.load()
+  if (!file.type.startsWith('audio/')) { player.error = '请选择浏览器支持的音频文件。'; return }
+  await playLocalFile(file)
+  input.value = ''
 }
-async function toggleLocal() { const audio = localAudio.value; if (!audio) return; if (audio.paused) { audio.volume = volume.value; await audio.play(); localPlaying.value = true } else { audio.pause(); localPlaying.value = false } }
-function stopLocal() { localAudio.value?.pause(); localPlaying.value = false }
-function removeLocal() { stopLocal(); if (localUrl.value) URL.revokeObjectURL(localUrl.value); localUrl.value = ''; localName.value = ''; currentTime.value = 0; duration.value = 0; if (fileInput.value) fileInput.value.value = '' }
-function updateVolume() { setAmbientVolume(volume.value); if (localAudio.value) localAudio.value.volume = volume.value }
-function seek(event: Event) { if (localAudio.value) localAudio.value.currentTime = Number((event.target as HTMLInputElement).value) }
-function time(value: number) { if (!Number.isFinite(value)) return '0:00'; return `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}` }
-onBeforeUnmount(() => { stopAll(); if (localUrl.value) URL.revokeObjectURL(localUrl.value) })
+
+function removeLocal() { releaseLocalFile() }
+
+/**
+ * 音量直接读事件目标的值，不读 `player.volume`。
+ * `v-model.number` 也会写这个字段，两者的 input 监听器谁先跑没有保证；
+ * 若本函数先跑就会把上一帧的旧值写回 audio，表现为「滑块在动、音量不变」。
+ */
+function onVolume(event: Event) {
+  const value = Number((event.target as HTMLInputElement).value)
+  player.volume = value
+  setVolume(value)
+}
+
+function onSeek(event: Event) { seek(Number((event.target as HTMLInputElement).value)) }
+function toggleLyric() { lyricView.open = !lyricView.open }
+
+onBeforeUnmount(() => { stopMusic() })
 </script>
 
 <template>
   <aside class="wellbeing-rail" aria-label="暖心空间声音侧栏">
-    <header><span><PhMusicNotes :size="21" weight="duotone" /></span><div><h2>声音角落</h2><p>它只是陪伴工具，随时可以停。</p></div></header>
-    <div class="now-playing"><div class="record" :class="{ spinning: selectedSound || localPlaying }"><i></i></div><div><small>正在播放</small><strong>{{ localName || selectedSound || '未选择声音' }}</strong></div><button type="button" :disabled="!selectedSound && !localPlaying" aria-label="停止全部声音" @click="stopAll"><PhStop :size="17" weight="fill" /></button></div>
+    <header>
+      <span><PhMusicNotes :size="21" weight="duotone" /></span>
+      <div><h2>声音角落</h2><p>它只是陪伴工具，随时可以停。</p></div>
+    </header>
+
+    <div class="now-playing">
+      <div class="record" :class="{ spinning: player.playing }"><i></i></div>
+      <div>
+        <small>{{ player.loading ? '正在解析音源…' : '正在播放' }}</small>
+        <strong :title="currentTitle">{{ currentTitle || '未选择声音' }}</strong>
+        <em v-if="currentSubtitle">{{ currentSubtitle }}</em>
+      </div>
+      <button type="button" :disabled="!currentTitle" aria-label="停止声音" @click="stopMusic"><PhStop :size="17" weight="fill" /></button>
+    </div>
+
+    <div class="sound-actions">
+      <button type="button" class="sound-play" :disabled="!currentTitle" @click="togglePlay">
+        <component :is="player.playing ? PhPause : PhPlay" :size="16" weight="fill" />
+        {{ player.playing ? '暂停' : '播放' }}
+      </button>
+      <button type="button" class="sound-lyric" :class="{ active: lyricView.open }" :disabled="!hasLyric" @click="toggleLyric">
+        <PhTextAa :size="16" weight="bold" />
+        {{ lyricView.open ? '收起歌词' : '看歌词' }}
+      </button>
+    </div>
+
+    <p v-if="player.error" class="rail-error">{{ player.error }}</p>
+
+    <div class="sound-search">
+      <label>
+        <PhMagnifyingGlass :size="16" />
+        <input
+          v-model="keyword"
+          type="search"
+          placeholder="搜歌名、歌手、专辑"
+          aria-label="搜索歌曲"
+          @keyup.enter="runSearch"
+        >
+        <button v-if="keyword" type="button" aria-label="清空搜索" @click="clearSearch"><PhTrash :size="14" /></button>
+      </label>
+      <button type="button" class="sound-search-go" :disabled="searching || !keyword.trim()" @click="runSearch">
+        {{ searching ? '搜索中' : '搜索' }}
+      </button>
+    </div>
+
+    <p v-if="searchError" class="rail-error">{{ searchError }}</p>
+
+    <ul v-if="results.length" class="sound-results">
+      <li v-for="item in results" :key="item.id">
+        <button
+          type="button"
+          :class="{ active: player.kind === 'track' && player.track?.id === item.id }"
+          @click="pick(item)"
+        >
+          <span class="result-main"><strong>{{ item.name }}</strong><small>{{ item.artists }}</small></span>
+          <em v-if="item.fee === 1" class="result-vip" title="会员曲目：会自动换第三方音源，首次解析要几秒">VIP</em>
+          <span class="result-time">{{ formatClock(item.duration / 1000) }}</span>
+        </button>
+      </li>
+    </ul>
+
+    <p v-else-if="searched && !searching" class="sound-empty">没有结果。也可以试试下面的随手听。</p>
+
+    <p class="sound-label">随手听（离线可用）</p>
     <div class="sound-presets">
-      <button v-for="preset in presets" :key="preset.id" :class="{ active: selectedSound === preset.id }" type="button" @click="setSound(preset.id)"><component :is="selectedSound === preset.id ? PhPause : PhPlay" :size="15" weight="fill" /><span>{{ preset.label }}</span></button>
+      <button
+        v-for="item in builtins"
+        :key="item.id"
+        :class="{ active: player.kind === 'local' && player.localName === item.name }"
+        type="button"
+        @click="pickBuiltin(item)"
+      >
+        <component :is="player.kind === 'local' && player.localName === item.name && player.playing ? PhPause : PhPlay" :size="15" weight="fill" />
+        <span><strong>{{ item.name }}</strong><small>{{ item.artist }}</small></span>
+      </button>
     </div>
-    <label class="sound-volume"><PhSpeakerHigh :size="17" /><input v-model.number="volume" type="range" min="0" max="1" step="0.01" aria-label="音乐音量" @input="updateVolume"><b>{{ Math.round(volume * 100) }}%</b></label>
-    <input ref="fileInput" class="visually-hidden" type="file" accept="audio/*" @change="loadLocal">
-    <button v-if="!localUrl" class="local-upload" type="button" @click="chooseLocal"><PhUploadSimple :size="20" /><span><strong>播放本地音乐</strong><small>文件只留在当前浏览器</small></span></button>
+
+    <label v-if="progressMax" class="sound-progress">
+      <span>{{ formatClock(player.currentTime) }}</span>
+      <input
+        type="range"
+        min="0"
+        :max="progressMax"
+        step="0.5"
+        :value="player.currentTime"
+        aria-label="播放进度"
+        @input="onSeek"
+      >
+      <span>{{ formatClock(player.duration) }}</span>
+    </label>
+
+    <label class="sound-volume">
+      <PhSpeakerHigh :size="17" />
+      <input v-model.number="player.volume" type="range" min="0" max="1" step="0.01" aria-label="音乐音量" @input="onVolume">
+      <b>{{ Math.round(player.volume * 100) }}%</b>
+    </label>
+
+    <p v-if="player.lyricLoading" class="sound-note">歌词加载中…</p>
+    <p v-else-if="player.instrumental && currentTitle" class="sound-note">这首歌没有歌词（纯音乐）。</p>
+
+    <input ref="fileInput" class="visually-hidden" type="file" accept="audio/*" @change="onFile">
+    <button v-if="!player.objectUrl" class="local-upload" type="button" @click="chooseLocal">
+      <PhUploadSimple :size="20" />
+      <span><strong>播放本地音乐</strong><small>文件只留在当前浏览器</small></span>
+    </button>
     <div v-else class="local-track">
-      <audio ref="localAudio" :src="localUrl" @loadedmetadata="duration = localAudio?.duration || 0" @timeupdate="currentTime = localAudio?.currentTime || 0" @ended="localPlaying = false"></audio>
-      <div><button type="button" @click="toggleLocal"><component :is="localPlaying ? PhPause : PhPlay" :size="17" weight="fill" /></button><strong :title="localName">{{ localName }}</strong><button type="button" aria-label="移除本地音乐" @click="removeLocal"><PhTrash :size="17" /></button></div>
-      <label><span>{{ time(currentTime) }}</span><input type="range" min="0" :max="duration || 0" step="0.1" :value="currentTime" aria-label="音乐进度" @input="seek"><span>{{ time(duration) }}</span></label>
+      <div>
+        <button type="button" :aria-label="player.playing ? '暂停本地音乐' : '播放本地音乐'" @click="togglePlay">
+          <component :is="player.playing ? PhPause : PhPlay" :size="17" weight="fill" />
+        </button>
+        <strong :title="player.localName">{{ player.localName }}</strong>
+        <button type="button" aria-label="移除本地音乐" @click="removeLocal"><PhTrash :size="17" /></button>
+      </div>
     </div>
-    <p v-if="error" class="rail-error">{{ error }}</p>
-    <div class="sound-privacy"><strong>本地播放</strong><p>平台不会上传、分析或保存你选择的音频文件。</p></div>
+
+    <div class="sound-privacy">
+      <strong>本地播放</strong>
+      <p>上传的音频不会离开当前浏览器；在线歌曲只取播放地址，不做下载或留存。</p>
+    </div>
   </aside>
 </template>

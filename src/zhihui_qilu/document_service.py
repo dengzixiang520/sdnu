@@ -110,10 +110,11 @@ class TemplatePreParser:
         values: dict[str, str | None] = {key: self._find_labeled_value(source_text, labels) for key, labels in self._LABELS.items()}
         lines = [line.strip() for line in source_text.splitlines() if line.strip()]
         title = values["title"] or (lines[0] if lines else "未命名文件")
-        body = values["body"] or "\n".join(line for line in lines if line != title)
+        attachments = self._extract_attachments(source_text)
+        # 正文是唯一可能跨多段的字段：从「正文：」取到落款/日期之前，附件块单独渲染
+        body = self._extract_body(source_text) or values["body"] or "\n".join(line for line in lines if line != title)
         if not body:
             body = "正文内容待补充。"
-        attachments = [match.strip() for match in re.findall(r"附件\s*[：:]\s*(.+)", source_text)]
         return OfficialDocumentElements(
             reference_number=values["reference_number"],
             title=title,
@@ -123,6 +124,44 @@ class TemplatePreParser:
             recipient=values["recipient"],
             attachments=attachments,
         )
+
+    def _extract_body(self, source_text: str) -> str | None:
+        """正文可跨多段：从「正文：」一直取到落款/日期标签，并摘掉附件块（附件另行渲染）。"""
+        match = re.search(r"(?:^|\n)\s*正文\s*[：:][ \t]*(.*)", source_text, re.S)
+        if not match:
+            return None
+        body = match.group(1)
+        stop = re.search(r"\n\s*(?:落款|署名|日期|成文日期)\s*[：:]", body)
+        if stop:
+            body = body[: stop.start()]
+        # 附件说明由 _add_attachments 单独排版，正文里不能重复出现
+        body = re.split(r"\n\s*附件\s*[：:]", body, maxsplit=1)[0]
+        body = "\n".join(line.rstrip() for line in body.splitlines()).strip()
+        return body or None
+
+    @staticmethod
+    def _extract_attachments(source_text: str) -> list[str]:
+        """附件说明可能折行：「附件：1.×××」后面跟缩进续行「　　　2.×××」。"""
+        items: list[str] = []
+        capturing = False
+        for line in source_text.splitlines():
+            stripped = line.strip()
+            head = re.match(r"^附件\s*[：:]\s*(.*)$", stripped)
+            if head:
+                capturing = True
+                if head.group(1).strip():
+                    items.append(head.group(1).strip())
+                continue
+            if not capturing:
+                continue
+            if not stripped:
+                break
+            # 续行必须是缩进的条目编号，否则附件块到此结束
+            if line[:1].isspace() and re.match(r"^[（(]?\d+[）).、．]", stripped):
+                items.append(stripped)
+                continue
+            break
+        return items
 
     def inspect_docx_template(self, template_path: Path) -> TemplateSpecification:
         """Read a DOCX template's visible text and discover supported {{placeholder}} markers."""
